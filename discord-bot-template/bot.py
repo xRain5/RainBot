@@ -183,7 +183,7 @@ async def pokemon_spawner():
             await asyncio.sleep(60)
             continue
 
-        await asyncio.sleep(1800)  # 30 minutes
+        await asyncio.sleep(300)  # 5 minutes  # 30 minutes
         rarity = random.choices(["common","uncommon","rare","legendary"], weights=[70, 20, 9, 1])[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
         shiny = (random.random() < SHINY_RATE)
@@ -839,15 +839,23 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_ready():
+    global pokemon_spawning, pokemon_loop_task
     print(f"✅ Bot ready as {bot.user}")
     print(f"✅ {len(bot.commands)} commands registered")
 
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if channel:
         await channel.send(
-            f"✅ Bot ready as {bot.user}\n"
+            f"✅ Bot ready as {bot.user}
+"
             f"✅ {len(bot.commands)} commands registered"
         )
+
+    # Auto-start Pokémon spawning if not already running
+    if not pokemon_spawning:
+        pokemon_spawning = True
+        pokemon_loop_task = asyncio.create_task(pokemon_spawner())
+        print("🐾 Auto-started Pokémon spawning")
 
 
 bot.run(DISCORD_TOKEN)

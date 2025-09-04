@@ -55,6 +55,15 @@ intents.guilds = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Safety: clear any commands if reloaded
+for cmd in list(bot.commands):
+    bot.remove_command(cmd.name)
+print("🔄 Commands reset on startup")
+
+# Safety: clear any commands if reloaded
+for cmd in list(bot.commands):
+    bot.remove_command(cmd.name)
+
 bot.remove_command("pokemonstatus")
 bot.remove_command("commands")
 

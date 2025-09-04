@@ -45,6 +45,44 @@ memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
 
 
+LEVELS_FILE = "levels.json"
+
+LEVEL_CONFIG = {
+    "message_xp": 5,
+    "catch_xp": 20,
+    "meme_xp": 10,
+    "joke_xp": 10,
+    "duel_win_xp": 30
+}
+
+def load_levels():
+    if os.path.exists(LEVELS_FILE):
+        with open(LEVELS_FILE, "r") as f:
+            try:
+                return json.load(f)
+            except Exception:
+                pass
+    return {}
+
+def save_levels(levels):
+    with open(LEVELS_FILE, "w") as f:
+        json.dump(levels, f, indent=2)
+
+levels = load_levels()
+
+def add_xp(user_id: str, amount: int):
+    user = levels.get(user_id, {"xp": 0, "level": 0})
+    user["xp"] += amount
+    import math
+    new_level = int(math.sqrt(user["xp"] / 50))
+    if new_level > user.get("level", 0):
+        user["level"] = new_level
+    levels[user_id] = user
+    save_levels(levels)
+    return user
+
+
+
 # =========================
 # DISCORD BOT
 # =========================
@@ -212,6 +250,7 @@ async def catch(ctx, *, name: str):
         if streaks[user_id] >= 3:
             msg += f" 🔥 {ctx.author.display_name} is on fire with {streaks[user_id]} catches in a row!"
         await ctx.send(msg)
+        add_xp(user_id, LEVEL_CONFIG["catch_xp"])
         await update_roles(ctx.guild)
     else:
         streaks[user_id] = 0
@@ -244,6 +283,7 @@ async def pokedex_cmd(ctx, member: discord.Member = None):
     if streak_count > 0:
         embed.set_footer(text=f"🔥 Current streak: {streak_count}")
     await ctx.send(embed=embed)
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
 
 @bot.command(name="top")
 async def top(ctx):
@@ -265,6 +305,7 @@ async def top(ctx):
             name = f"User {user_id}"
         embed.add_field(name=f"#{i} {name}", value=f"{total} Pokémon ({shinies} shiny)", inline=False)
     await ctx.send(embed=embed)
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
 
 # =========================
 # ROLE MANAGEMENT
@@ -508,10 +549,12 @@ async def meme_cmd(ctx):
             embed = discord.Embed(title=title or "😂 Meme", color=discord.Color.random())
             embed.set_image(url=url)
             await ctx.send(embed=embed)
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
         else:
             await ctx.send(title or "😂 Meme")
     else:
         await ctx.send(str(meme))
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
 
 @bot.command(name="joke")
 async def joke_cmd(ctx):
@@ -524,10 +567,13 @@ async def joke_cmd(ctx):
         punchline = joke.get("punchline")
         if setup and punchline:
             await ctx.send(f"🤣 {setup}\n||{punchline}||")
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["joke_xp"])
         else:
             await ctx.send(joke.get("text", "😂 Bad joke file format!"))
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["joke_xp"])
     else:
         await ctx.send(str(joke))
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["joke_xp"])
 
 
 
@@ -542,6 +588,7 @@ async def list_follows(ctx):
     embed.add_field(name="Twitch Streamers", value="\n".join(twitch_list), inline=False)
     embed.add_field(name="YouTube Channels", value="\n".join(youtube_list), inline=False)
     await ctx.send(embed=embed)
+    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
 
 
 
@@ -570,6 +617,50 @@ async def remove_youtube(ctx, channel_id: str):
     notify_data["youtube_channels"] = youtube_channels
     save_notify_data(notify_data)
     await ctx.send(f"✅ Removed YouTube channel `{channel_id}`.")
+
+
+
+# =========================
+# LEVELS & GAME
+# =========================
+@bot.command(name="level")
+async def level_cmd(ctx, member: discord.Member = None):
+    user = member or ctx.author
+    data = levels.get(str(user.id), {"xp": 0, "level": 0})
+    await ctx.send(f"⭐ {user.display_name} - Level {data.get('level', 0)} ({data.get('xp', 0)} XP)")
+
+@bot.command(name="leaderboard")
+async def leaderboard_cmd(ctx):
+    if not levels:
+        await ctx.send("📭 No levels recorded yet!")
+        return
+    sorted_lvls = sorted(levels.items(), key=lambda kv: kv[1].get("xp", 0), reverse=True)
+    embed = discord.Embed(title="🏆 Level Leaderboard", color=discord.Color.gold())
+    for i, (uid, data) in enumerate(sorted_lvls[:10], 1):
+        try:
+            user = await bot.fetch_user(int(uid))
+            name = user.display_name
+        except Exception:
+            name = f"User {uid}"
+        embed.add_field(name=f"#{i} {name}", value=f"Level {data.get('level', 0)} ({data.get('xp', 0)} XP)", inline=False)
+    await ctx.send(embed=embed)
+
+@bot.command(name="duel")
+async def duel_cmd(ctx, opponent: discord.Member):
+    if opponent.id == ctx.author.id:
+        await ctx.send("❌ You cannot duel yourself!")
+        return
+    import random
+    winner = random.choice([ctx.author, opponent])
+    add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"])
+    await ctx.send(f"⚔️ {ctx.author.display_name} dueled {opponent.display_name}! **{winner.display_name}** wins and gains {LEVEL_CONFIG['duel_win_xp']} XP!")
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    add_xp(str(message.author.id), LEVEL_CONFIG["message_xp"])
+    await bot.process_commands(message)
 
 
 # =========================

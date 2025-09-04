@@ -14,7 +14,7 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-NOTIFY_CHANNEL_ID = int(os.getenv("NOTIFY_CHANNEL_ID", 0))  # Discord channel for notifications
+NOTIFY_CHANNEL_ID = int(os.getenv("NOTIFY_CHANNEL_ID", 0))
 
 if not DISCORD_TOKEN:
     print("❌ ERROR: DISCORD_TOKEN is missing! Did you set it in Railway Variables?")
@@ -31,56 +31,85 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 TWITCH_ACCESS_TOKEN = None
 
 def get_twitch_token():
-    """Fetch a new Twitch OAuth token"""
     global TWITCH_ACCESS_TOKEN
-    print("🔑 Fetching new Twitch token...")
     url = "https://id.twitch.tv/oauth2/token"
-    params = {
-        "client_id": TWITCH_CLIENT_ID,
-        "client_secret": TWITCH_SECRET,
-        "grant_type": "client_credentials"
-    }
+    params = {"client_id": TWITCH_CLIENT_ID, "client_secret": TWITCH_SECRET, "grant_type": "client_credentials"}
     try:
         resp = requests.post(url, params=params)
         resp.raise_for_status()
         data = resp.json()
         TWITCH_ACCESS_TOKEN = data["access_token"]
-        print("✅ Twitch token fetched successfully")
         return TWITCH_ACCESS_TOKEN
     except Exception as e:
         print("❌ Failed to fetch Twitch token:", e)
-        traceback.print_exc()
         return None
 
 def twitch_headers():
-    """Return headers with token"""
     if TWITCH_ACCESS_TOKEN is None:
         get_twitch_token()
-    return {
-        "Client-ID": TWITCH_CLIENT_ID,
-        "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}"
-    }
+    return {"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}"}
 
-# --- Persistence Helpers ---
+# --- Persistence ---
 def load_data():
-    """Load notify data from file"""
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
-            print("📂 Loading notify_data.json")
             return json.load(f)
-    print("📂 No notify_data.json found, starting fresh")
-    return {"streamers": [], "youtube_channels": {}}
+    return {"streamers": [], "youtube_channels": {}, "custom_commands": {}, "balances": {}, "shop_items": {}, "inventories": {}}
 
 def save_data():
-    """Save notify data to file"""
     with open(DATA_FILE, "w") as f:
-        json.dump({"streamers": streamers, "youtube_channels": youtube_channels}, f)
-    print("💾 Saved notify data to file")
+        json.dump(
+            {
+                "streamers": streamers,
+                "youtube_channels": youtube_channels,
+                "custom_commands": custom_commands,
+                "balances": balances,
+                "shop_items": shop_items,
+                "inventories": inventories,
+            },
+            f,
+        )
 
-# Load initial data
 data = load_data()
-streamers = data["streamers"]
-youtube_channels = data["youtube_channels"]
+streamers = data.get("streamers", [])
+youtube_channels = data.get("youtube_channels", {})
+custom_commands = data.get("custom_commands", {})
+balances = data.get("balances", {})
+shop_items = data.get("shop_items", {
+    "meme": {"price": 5, "desc": "Get a random funny meme", "consumable": True},
+    "shoutout": {"price": 10, "desc": "The bot gives you a shoutout!", "consumable": True},
+    "rolecolor": {"price": 20, "desc": "Change your role color (random color)", "consumable": True},
+})
+inventories = data.get("inventories", {})
+
+# --- Economy Helpers ---
+def add_coins(user_id: str, amount: int):
+    balances[user_id] = balances.get(user_id, 0) + amount
+    save_data()
+
+def spend_coins(user_id: str, amount: int):
+    if balances.get(user_id, 0) >= amount:
+        balances[user_id] -= amount
+        save_data()
+        return True
+    return False
+
+def get_balance(user_id: str):
+    return balances.get(user_id, 0)
+
+def add_to_inventory(user_id: str, item: str):
+    if user_id not in inventories:
+        inventories[user_id] = []
+    inventories[user_id].append(item)
+    save_data()
+
+def remove_from_inventory(user_id: str, item: str):
+    if user_id in inventories and item in inventories[user_id]:
+        inventories[user_id].remove(item)
+        save_data()
+
+def get_inventory(user_id: str):
+    return inventories.get(user_id, [])
 
 # --- Store last notified states ---
 last_twitch_status = {}
@@ -90,207 +119,286 @@ last_youtube_video = {}
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
-    print("📡 Bot is ready and listening for commands!")
-
-    # Start background tasks
     if not twitch_notifier.is_running():
         twitch_notifier.start()
-        print("⏰ Twitch notifier task started")
-
     if not youtube_notifier.is_running():
         youtube_notifier.start()
-        print("⏰ YouTube notifier task started")
 
-# --- Basic Commands ---
+# --- Utility Commands ---
 @bot.command()
 async def ping(ctx):
-    print("📩 Ping command received")
     await ctx.send("🏓 Pong!")
 
 @bot.command()
 async def roll(ctx, sides: int = 6):
-    print(f"🎲 Roll command received with {sides} sides")
     result = random.randint(1, sides)
-    await ctx.send(f"🎲 You rolled a **{result}** on a {sides}-sided die!")
+    add_coins(str(ctx.author.id), 1)
+    await ctx.send(f"🎲 You rolled a **{result}** on a {sides}-sided die! (+1 coin)")
 
 @bot.command()
 async def debug(ctx):
-    """Shows raw debug info about tracked channels"""
-    print("🐞 Debug command used")
     twitch_list = "\n".join(f"- {s}" for s in streamers) if streamers else "None"
     yt_list = "\n".join(f"- {n}: {cid}" for n, cid in youtube_channels.items()) if youtube_channels else "None"
-
-    msg = (
-        f"**📡 Debug Info:**\n"
-        f"**Notify Channel ID:** {NOTIFY_CHANNEL_ID}\n\n"
-        f"**🎥 Twitch Streamers:**\n{twitch_list}\n\n"
-        f"**📺 YouTube Channels:**\n{yt_list}"
-    )
+    msg = f"**Debug Info:**\nNotify Channel ID: {NOTIFY_CHANNEL_ID}\n\n🎥 Twitch:\n{twitch_list}\n\n📺 YouTube:\n{yt_list}"
     await ctx.send(msg)
 
+# --- Fun Commands ---
 @bot.command()
-async def listchannels(ctx):
-    """Show a clean list of tracked Twitch + YouTube channels"""
-    print("📋 Listchannels command used")
-    twitch_list = "\n".join(f"🎥 {s}" for s in streamers) if streamers else "None"
-    yt_list = "\n".join(f"📺 {n}" for n in youtube_channels.keys()) if youtube_channels else "None"
+async def joke(ctx):
+    jokes = [
+        "Why don’t skeletons fight each other? They don’t have the guts.",
+        "I told my computer I needed a break, and it froze.",
+        "Why did the scarecrow win an award? Because he was outstanding in his field!",
+    ]
+    await ctx.send(f"😂 {random.choice(jokes)}")
 
-    msg = (
-        f"**📋 Currently Tracking:**\n\n"
-        f"**Twitch:**\n{twitch_list}\n\n"
-        f"**YouTube:**\n{yt_list}"
+@bot.command()
+async def eightball(ctx, *, question: str):
+    responses = ["Yes ✅", "No ❌", "Maybe 🤔", "Definitely!", "I wouldn't count on it..."]
+    await ctx.send(f"🎱 {random.choice(responses)}")
+
+@bot.command()
+async def coinflip(ctx):
+    result = random.choice(["Heads", "Tails"])
+    add_coins(str(ctx.author.id), 1)
+    await ctx.send(f"🪙 {result}! (+1 coin)")
+
+@bot.command()
+async def rps(ctx, choice: str):
+    options = ["rock", "paper", "scissors"]
+    bot_choice = random.choice(options)
+    choice = choice.lower()
+    if choice not in options:
+        await ctx.send("❌ Please choose rock, paper, or scissors.")
+        return
+    if choice == bot_choice:
+        result = "It's a tie!"
+    elif (choice == "rock" and bot_choice == "scissors") or \
+         (choice == "paper" and bot_choice == "rock") or \
+         (choice == "scissors" and bot_choice == "paper"):
+        result = "You win! 🎉 (+2 coins)"
+        add_coins(str(ctx.author.id), 2)
+    else:
+        result = "I win! 😎"
+    await ctx.send(f"✊ {choice} vs 🤖 {bot_choice} → {result}")
+
+@bot.command()
+async def meme(ctx):
+    memes = [
+        "https://i.imgur.com/fY6VZ3G.jpeg",
+        "https://i.imgur.com/w3duR07.png",
+        "https://i.imgur.com/4M7IWwP.png",
+    ]
+    await ctx.send(random.choice(memes))
+
+# --- Economy Commands ---
+@bot.command()
+async def balance(ctx):
+    coins = get_balance(str(ctx.author.id))
+    await ctx.send(f"💰 {ctx.author.display_name}, you have **{coins} coins**.")
+
+@bot.command()
+async def leaderboard(ctx):
+    if not balances:
+        await ctx.send("🏆 No leaderboard yet!")
+        return
+    sorted_balances = sorted(balances.items(), key=lambda x: x[1], reverse=True)[:10]
+    leaderboard_text = "\n".join(
+        f"{i+1}. <@{uid}> — {coins} coins" for i, (uid, coins) in enumerate(sorted_balances)
     )
-    await ctx.send(msg)
+    await ctx.send(f"🏆 **Leaderboard**:\n{leaderboard_text}")
 
 @bot.command()
-async def clearall(ctx, confirm: str = None):
-    """Remove ALL tracked Twitch and YouTube channels (requires !clearall confirm)"""
-    global streamers, youtube_channels
-    if confirm != "confirm":
-        await ctx.send("⚠️ This will erase ALL tracked channels! Type `!clearall confirm` to proceed.")
+async def shop(ctx):
+    if not shop_items:
+        await ctx.send("🛒 The shop is empty! Ask an admin to add items.")
+        return
+    items = "\n".join([
+        f"**{name}** ({info['price']} coins) → {info['desc']} {'(Consumable)' if info.get('consumable') else ''}"
+        for name, info in shop_items.items()
+    ])
+    await ctx.send(f"🛒 **Shop Items:**\n{items}")
+
+@bot.command()
+async def buy(ctx, item: str):
+    item = item.lower()
+    if item not in shop_items:
+        await ctx.send("❌ Item not found! Use `!shop` to see available items.")
         return
 
-    print("🗑️ Clearall command used with confirmation")
-    streamers = []
-    youtube_channels = {}
-    save_data()
-    await ctx.send("🧹 All tracked Twitch and YouTube channels have been cleared!")
-
-# --- Twitch Management Commands ---
-@bot.command()
-async def addstreamer(ctx, username: str):
-    """Add a Twitch streamer to track"""
-    if username.lower() not in [s.lower() for s in streamers]:
-        streamers.append(username)
-        save_data()
-        await ctx.send(f"✅ Added Twitch streamer: **{username}**")
-    else:
-        await ctx.send(f"⚠️ {username} is already being tracked.")
-
-@bot.command()
-async def removestreamer(ctx, username: str):
-    """Remove a Twitch streamer"""
-    if username in streamers:
-        streamers.remove(username)
-        save_data()
-        await ctx.send(f"🗑️ Removed Twitch streamer: **{username}**")
-    else:
-        await ctx.send(f"⚠️ {username} is not in the tracking list.")
-
-# --- Helper: Resolve YouTube handle to channelId ---
-async def resolve_youtube_channel(identifier: str):
-    """Resolve @handle to (channelId, title, customUrl)"""
-    if identifier.startswith("@"):
-        print(f"🔎 Resolving YouTube handle {identifier}")
-        url = f"https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q={identifier}&key={YOUTUBE_API_KEY}"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    print(f"❌ Failed to resolve handle {identifier}, status {resp.status}")
-                    return None, None, None
-                data = await resp.json()
-                if "items" in data and len(data["items"]) > 0:
-                    item = data["items"][0]
-                    channel_id = item["snippet"]["channelId"]
-                    title = item["snippet"]["title"]
-                    custom_url = f"https://www.youtube.com/channel/{channel_id}"
-                    return channel_id, title, custom_url
-        return None, None, None
-    # If it's already a channelId
-    return identifier, None, f"https://www.youtube.com/channel/{identifier}"
-
-# --- YouTube Management Commands ---
-@bot.command()
-async def addyoutube(ctx, name: str, identifier: str):
-    """Add a YouTube channel (name + channelId or @handle)"""
-    channel_id, title, link = await resolve_youtube_channel(identifier)
-    if not channel_id:
-        await ctx.send(f"❌ Could not resolve YouTube channel: {identifier}")
+    price = shop_items[item]["price"]
+    if not spend_coins(str(ctx.author.id), price):
+        await ctx.send("💸 You don’t have enough coins!")
         return
-    youtube_channels[name] = channel_id
-    save_data()
-    display_name = title or name
-    await ctx.send(f"✅ Added YouTube channel: **{display_name}**\n🔗 {link}")
+
+    add_to_inventory(str(ctx.author.id), item)
+    await ctx.send(f"✅ You bought `{item}`! Use it later with `!use {item}` if it’s consumable.")
 
 @bot.command()
-async def removeyoutube(ctx, name: str):
-    """Remove a YouTube channel by name"""
-    if name in youtube_channels:
-        del youtube_channels[name]
-        save_data()
-        await ctx.send(f"🗑️ Removed YouTube channel: **{name}**")
-    else:
-        await ctx.send(f"⚠️ {name} is not being tracked.")
+async def myitems(ctx):
+    items = get_inventory(str(ctx.author.id))
+    if not items:
+        await ctx.send("📦 You don’t own any items yet! Buy some with `!shop`.")
+        return
+    item_counts = {}
+    for item in items:
+        item_counts[item] = item_counts.get(item, 0) + 1
+    item_list = "\n".join([f"**{item}** × {count}" for item, count in item_counts.items()])
+    await ctx.send(f"📦 **Your Items:**\n{item_list}")
 
-# --- Background task: Twitch live checker ---
+@bot.command()
+async def use(ctx, item: str):
+    user_id = str(ctx.author.id)
+    item = item.lower()
+    if item not in get_inventory(user_id):
+        await ctx.send("❌ You don’t own this item!")
+        return
+
+    if item not in shop_items:
+        await ctx.send("⚠️ This item no longer exists in the shop.")
+        return
+
+    if not shop_items[item].get("consumable", False):
+        await ctx.send("♻️ This item isn’t consumable, you keep it forever!")
+        return
+
+    # Apply consumable effect
+    if item == "meme":
+        await meme(ctx)
+    elif item == "shoutout":
+        await ctx.send(f"📢 BIG SHOUTOUT to {ctx.author.mention}! 🎉")
+    elif item == "rolecolor":
+        if ctx.guild:
+            role = discord.utils.get(ctx.guild.roles, name="CustomColor")
+            if not role:
+                role = await ctx.guild.create_role(name="CustomColor")
+            await ctx.author.add_roles(role)
+            color = discord.Colour.random()
+            await role.edit(colour=color)
+            await ctx.send(f"🌈 {ctx.author.mention}, your role color has been changed!")
+
+    remove_from_inventory(user_id, item)
+    await ctx.send(f"✅ You used `{item}`!")
+
+# --- Shop Admin Commands ---
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def additem(ctx, name: str, price: int, consumable: str, *, desc: str):
+    """Add an item to the shop. Example: !additem potion 5 true Heals you when used."""
+    consumable_flag = consumable.lower() in ["true", "yes", "1"]
+    shop_items[name.lower()] = {"price": price, "desc": desc, "consumable": consumable_flag}
+    save_data()
+    await ctx.send(f"✅ Added `{name}` to the shop for {price} coins. Consumable: {consumable_flag}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removeitem(ctx, name: str):
+    if name.lower() in shop_items:
+        del shop_items[name.lower()]
+        save_data()
+        await ctx.send(f"🗑️ Removed `{name}` from the shop.")
+    else:
+        await ctx.send("❌ Item not found in shop.")
+
+# --- Custom Commands ---
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def addcommand(ctx, name: str, *, response: str):
+    custom_commands[name] = response
+    save_data()
+    await ctx.send(f"✅ Custom command `!{name}` added!")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def removecommand(ctx, name: str):
+    if name in custom_commands:
+        del custom_commands[name]
+        save_data()
+        await ctx.send(f"🗑️ Removed custom command `!{name}`")
+    else:
+        await ctx.send(f"⚠️ Command `{name}` does not exist.")
+
+@bot.listen("on_message")
+async def custom_command_listener(message):
+    if message.author == bot.user:
+        return
+    if not message.content.startswith("!"):
+        return
+    cmd = message.content[1:].split(" ")[0]
+    if cmd in custom_commands:
+        await message.channel.send(custom_commands[cmd])
+
+# --- Categorized Help Command ---
+@bot.command(name="commands")
+async def list_commands(ctx):
+    """Show categorized list of available commands"""
+    categories = {
+        "Utility": ["ping", "roll", "debug"],
+        "Fun": ["joke", "eightball", "coinflip", "rps", "meme"],
+        "Economy": ["balance", "leaderboard"],
+        "Shop": ["shop", "buy", "myitems", "use"],
+        "Admin (Shop)": ["additem", "removeitem"],
+        "Admin (Custom Commands)": ["addcommand", "removecommand"],
+    }
+
+    embed = discord.Embed(title="📖 Available Commands", color=discord.Color.blue())
+    for category, cmds in categories.items():
+        embed.add_field(name=category, value=", ".join([f"`!{c}`" for c in cmds]), inline=False)
+
+    if custom_commands:
+        embed.add_field(
+            name="Custom Commands",
+            value=", ".join([f"`!{c}`" for c in custom_commands.keys()]),
+            inline=False,
+        )
+
+    await ctx.send(embed=embed)
+
+# --- Twitch/YouTube Notifiers ---
 @tasks.loop(minutes=2)
 async def twitch_notifier():
     await bot.wait_until_ready()
-    print("🔎 Checking Twitch streamers...")
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if not channel:
-        print("⚠️ Could not find notify channel, check NOTIFY_CHANNEL_ID")
         return
-
     for username in streamers:
-        print(f"➡️ Checking Twitch streamer: {username}")
         try:
             url = "https://api.twitch.tv/helix/streams"
             resp = requests.get(url, headers=twitch_headers(), params={"user_login": username})
             resp.raise_for_status()
             data = resp.json()
-
             is_live = bool(data.get("data"))
             was_live = last_twitch_status.get(username, False)
-
             if is_live and not was_live:
-                print(f"📢 {username} went live! Sending notification...")
                 await channel.send(f"🎥 **{username} is LIVE on Twitch!** 👉 https://twitch.tv/{username}")
-
             last_twitch_status[username] = is_live
         except Exception as e:
             print(f"❌ Error checking Twitch streamer {username}:", e)
-            traceback.print_exc()
 
-# --- Background task: YouTube new video checker ---
 @tasks.loop(minutes=5)
 async def youtube_notifier():
     await bot.wait_until_ready()
-    print("🔎 Checking YouTube channels...")
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if not channel:
-        print("⚠️ Could not find notify channel, check NOTIFY_CHANNEL_ID")
         return
-
     for name, channel_id in youtube_channels.items():
-        print(f"➡️ Checking YouTube channel: {name} ({channel_id})")
         try:
             url = f"https://www.googleapis.com/youtube/v3/search?key={YOUTUBE_API_KEY}&channelId={channel_id}&part=snippet,id&order=date&maxResults=1"
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:
                     if resp.status != 200:
-                        print(f"❌ YouTube API error {resp.status}")
                         continue
                     data = await resp.json()
-
             if "items" in data and len(data["items"]) > 0:
                 video = data["items"][0]
                 video_id = video["id"].get("videoId")
                 title = video["snippet"]["title"]
-
                 last_id = last_youtube_video.get(channel_id)
                 if video_id and video_id != last_id:
-                    print(f"📢 New video found for {name}: {title}")
                     await channel.send(f"📺 **{name} uploaded a new video!** 🎬 {title}\n👉 https://youtu.be/{video_id}")
                     last_youtube_video[channel_id] = video_id
         except Exception as e:
             print(f"❌ Error checking YouTube channel {name}:", e)
-            traceback.print_exc()
 
-# --- Run bot with crash handling ---
-try:
-    print("▶️ Starting bot.run()...")
-    bot.run(DISCORD_TOKEN)
-except Exception as e:
-    print("❌ Bot crashed with error:")
-    traceback.print_exc()
+# --- Run bot ---
+bot.run(DISCORD_TOKEN)

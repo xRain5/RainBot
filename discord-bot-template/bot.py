@@ -460,6 +460,16 @@ async def commands_list(ctx):
         value="Auto Twitch & YouTube alerts in the notify channel",
         inline=False
     )
+    embed.add_field(
+        name="📺 Channel List",
+        value="`!listfollows`",
+        inline=False
+    )
+    embed.add_field(
+        name="🔔 Notifications",
+        value="Auto Twitch & YouTube alerts in the notify channel",
+        inline=False
+    )
     embed.set_footer(text="* admin only")
     try:
         await ctx.author.send(embed=embed)
@@ -472,8 +482,9 @@ async def commands_list(ctx):
 @commands.cooldown(1, 20, commands.BucketType.user)
 async def admin_commands(ctx):
     embed = discord.Embed(title="⚙️ Admin Commands", color=discord.Color.red())
-    embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`", inline=False)
+    embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`", inline=False)
     embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`, `!forceroles`", inline=False)
+    embed.add_field(name="📺 Channel List", value="`!listfollows`", inline=False)
     try:
         await ctx.author.send(embed=embed)
         await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
@@ -517,6 +528,48 @@ async def joke_cmd(ctx):
             await ctx.send(joke.get("text", "😂 Bad joke file format!"))
     else:
         await ctx.send(str(joke))
+
+
+
+# =========================
+# LIST FOLLOWED STREAMERS & YOUTUBE CHANNELS
+# =========================
+@bot.command(name="listfollows")
+async def list_follows(ctx):
+    twitch_list = streamers if streamers else ["(none)"]
+    youtube_list = list(youtube_channels.keys()) if youtube_channels else ["(none)"]
+    embed = discord.Embed(title="📺 Followed Channels", color=discord.Color.blue())
+    embed.add_field(name="Twitch Streamers", value="\n".join(twitch_list), inline=False)
+    embed.add_field(name="YouTube Channels", value="\n".join(youtube_list), inline=False)
+    await ctx.send(embed=embed)
+
+
+
+# =========================
+# ADMIN: REMOVE STREAMERS / YT
+# =========================
+@bot.command(name="removestreamer")
+@commands.has_permissions(manage_guild=True)
+async def remove_streamer(ctx, twitch_name: str):
+    name = twitch_name.lower()
+    if name not in streamers:
+        await ctx.send(f"⚠️ **{name}** is not in the Twitch list.")
+        return
+    streamers.remove(name)
+    notify_data["streamers"] = streamers
+    save_notify_data(notify_data)
+    await ctx.send(f"✅ Removed **{name}** from Twitch notifications.")
+
+@bot.command(name="removeyoutube")
+@commands.has_permissions(manage_guild=True)
+async def remove_youtube(ctx, channel_id: str):
+    if channel_id not in youtube_channels:
+        await ctx.send(f"⚠️ Channel `{channel_id}` is not tracked.")
+        return
+    youtube_channels.pop(channel_id, None)
+    notify_data["youtube_channels"] = youtube_channels
+    save_notify_data(notify_data)
+    await ctx.send(f"✅ Removed YouTube channel `{channel_id}`.")
 
 
 # =========================

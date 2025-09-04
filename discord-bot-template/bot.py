@@ -55,6 +55,9 @@ intents.guilds = True
 intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+bot.remove_command("pokemonstatus")
+bot.remove_command("commands")
+
 # =========================
 # PERSISTENCE HELPERS
 # =========================

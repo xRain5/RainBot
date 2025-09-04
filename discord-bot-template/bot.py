@@ -844,11 +844,10 @@ async def on_ready():
     print(f"✅ {len(bot.commands)} commands registered")
 
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
+    channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if channel:
         await channel.send(
-            f"✅ Bot ready as {bot.user}
-"
-            f"✅ {len(bot.commands)} commands registered"
+            f"✅ Bot ready as {bot.user}\n✅ {len(bot.commands)} commands registered"
         )
 
     # Auto-start Pokémon spawning if not already running

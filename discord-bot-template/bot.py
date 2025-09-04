@@ -6,6 +6,7 @@ import aiohttp
 import asyncio
 import random
 import json
+from discord.ext.commands import CommandOnCooldown
 
 print("Bot starting up...")
 
@@ -16,6 +17,7 @@ TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 NOTIFY_CHANNEL_ID = int(os.getenv("NOTIFY_CHANNEL_ID", 0))  # Discord channel for notifications
 POKEMON_CHANNEL_ID = int(os.getenv("POKEMON_CHANNEL_ID", 0))  # Channel for Pokémon spawns
+GUILD_ID = int(os.getenv("GUILD_ID", 0))  # Server ID for assigning roles
 
 DATA_FILE = "notify_data.json"
 
@@ -28,6 +30,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 TWITCH_ACCESS_TOKEN = None
 
 def get_twitch_token():
+    """Fetch a new Twitch OAuth token"""
     global TWITCH_ACCESS_TOKEN
     url = "https://id.twitch.tv/oauth2/token"
     params = {
@@ -41,6 +44,7 @@ def get_twitch_token():
     return TWITCH_ACCESS_TOKEN
 
 def twitch_headers():
+    """Return headers with token"""
     if TWITCH_ACCESS_TOKEN is None:
         get_twitch_token()
     return {
@@ -50,24 +54,16 @@ def twitch_headers():
 
 # --- Persistence Helpers ---
 def load_data():
+    """Load notify data from file"""
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             return json.load(f)
     return {"streamers": [], "youtube_channels": {}}
 
 def save_data():
+    """Save notify data to file"""
     with open(DATA_FILE, "w") as f:
         json.dump({"streamers": streamers, "youtube_channels": youtube_channels}, f)
-
-# --- Joke & Meme loaders ---
-def load_json_list(filename):
-    if os.path.exists(filename):
-        with open(filename, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
-
-jokes = load_json_list("jokes.json")
-memes = load_json_list("memes.json")
 
 # Load initial data
 data = load_data()
@@ -78,84 +74,85 @@ youtube_channels = data["youtube_channels"]
 last_twitch_status = {}
 last_youtube_video = {}
 
-# --- Background task: Twitch live checker ---
-@tasks.loop(minutes=2)
-async def twitch_notifier():
-    await bot.wait_until_ready()
-    channel = bot.get_channel(NOTIFY_CHANNEL_ID)
-    if not channel:
-        return
+# =========================
+# Background tasks (Twitch + YouTube checkers) here...
+# =========================
 
-    for username in streamers:
-        url = "https://api.twitch.tv/helix/streams"
-        resp = requests.get(url, headers=twitch_headers(), params={"user_login": username})
-        data = resp.json()
-
-        is_live = bool(data.get("data"))
-        was_live = last_twitch_status.get(username, False)
-
-        if is_live and not was_live:
-            await channel.send(f"🎥 **{username} is LIVE on Twitch!** 👉 https://twitch.tv/{username}")
-
-        last_twitch_status[username] = is_live
-
-# --- Commands ---
-@bot.command(name="joke")
+# =========================
+# Fun commands
+# =========================
+@bot.command()
 async def joke(ctx):
-    if jokes:
-        await ctx.send(random.choice(jokes))
-    else:
-        await ctx.send("😢 No jokes loaded.")
+    """Tell a random joke"""
+    jokes = [
+        "Why don’t skeletons ever fight each other? They don’t have the guts!",
+        "I told my computer I needed a break, and it froze.",
+        "Why did the gamer cross the road? To get to the next level!",
+    ]
+    await ctx.send(random.choice(jokes))
 
-@bot.command(name="meme")
-async def meme(ctx):
-    if memes:
-        await ctx.send(random.choice(memes))
-    else:
-        await ctx.send("😢 No memes loaded.")
+@bot.command()
+async def roll(ctx, sides: int = 6):
+    """Roll a dice"""
+    result = random.randint(1, sides)
+    await ctx.send(f"🎲 You rolled a {result} on a {sides}-sided dice!")
 
-# Pokémon Game System
-pokemon_spawning = False
-pokemon_loop_task = None
+# =========================
+# Auto-updating Help Menus
+# =========================
+@bot.command(name="commands")
+@commands.cooldown(1, 30, commands.BucketType.user)
+async def commands_list(ctx):
+    """Show a list of available commands for regular users."""
+    embed = discord.Embed(
+        title="📖 Available Commands",
+        description="Here are the commands you can use:",
+        color=discord.Color.blue()
+    )
+    user_cmds = [
+        "`!joke` - Get a random joke",
+        "`!roll [sides]` - Roll a dice",
+        "`!catch <pokemon>` - Try catching a Pokémon",
+    ]
+    embed.add_field(name="🎮 Fun", value="\n".join(user_cmds), inline=False)
 
-async def pokemon_spawner():
-    await bot.wait_until_ready()
-    channel = bot.get_channel(POKEMON_CHANNEL_ID)
-    if not channel:
-        print("⚠️ Pokemon channel not found.")
-        return
-    while pokemon_spawning:
-        await asyncio.sleep(random.randint(30, 90))
-        pokemon = random.choice(["Pikachu", "Charmander", "Squirtle", "Bulbasaur"])
-        await channel.send(f"A wild **{pokemon}** appeared! Type `!catch {pokemon}` to try and catch it!")
+    await ctx.author.send(embed=embed)
+    await ctx.send("📬 I've sent you a DM with the list of commands!")
 
-@bot.command(name="startpokemon")
+@bot.command(name="admincommands")
 @commands.has_permissions(manage_guild=True)
-async def startpokemon(ctx):
-    global pokemon_spawning, pokemon_loop_task
-    if pokemon_spawning:
-        await ctx.send("Pokémon spawns are already running!")
-        return
-    pokemon_spawning = True
-    pokemon_loop_task = asyncio.create_task(pokemon_spawner())
-    await ctx.send("🐾 Pokémon spawning has started!")
+@commands.cooldown(1, 30, commands.BucketType.user)
+async def admin_commands(ctx):
+    """Show a list of admin-only commands."""
+    embed = discord.Embed(
+        title="⚙️ Admin Commands",
+        description="Moderator-only commands:",
+        color=discord.Color.red()
+    )
+    admin_cmds = [
+        "`!addstreamer <twitch_name>` - Add a Twitch streamer for notifications",
+        "`!addyoutube <channel_id>` - Add a YouTube channel for notifications",
+        "`!startpokemon` - Start Pokémon spawns",
+        "`!stoppokemon` - Stop Pokémon spawns",
+    ]
+    embed.add_field(name="🛠️ Moderation", value="\n".join(admin_cmds), inline=False)
 
-@bot.command(name="stoppokemon")
-@commands.has_permissions(manage_guild=True)
-async def stoppokemon(ctx):
-    global pokemon_spawning, pokemon_loop_task
-    if not pokemon_spawning:
-        await ctx.send("Pokémon spawns are not running.")
-        return
-    pokemon_spawning = False
-    if pokemon_loop_task:
-        pokemon_loop_task.cancel()
-    await ctx.send("🐾 Pokémon spawning has stopped!")
+    await ctx.author.send(embed=embed)
+    await ctx.send("📬 I've sent you a DM with the list of admin commands!")
 
-# --- Bot startup ---
+# =========================
+# Error handler for cooldowns
+# =========================
 @bot.event
-async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    twitch_notifier.start()
+async def on_command_error(ctx, error):
+    if isinstance(error, CommandOnCooldown):
+        await ctx.send(f"⏳ Please wait {error.retry_after:.1f}s before using this command again.", delete_after=5)
+    elif isinstance(error, commands.CommandNotFound):
+        await ctx.send("❌ That command doesn’t exist. Try `!commands` to see available ones.", delete_after=5)
+    else:
+        raise error
 
+# =========================
+# Run bot
+# =========================
 bot.run(DISCORD_TOKEN)

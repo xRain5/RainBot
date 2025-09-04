@@ -52,8 +52,8 @@ LEVEL_CONFIG = {
     "catch_xp": 20,
     "meme_xp": 10,
     "joke_xp": 10,
-    "duel_win_xp": 30
-    # toggle announcements
+    "duel_win_xp": 30,
+    "announce_levelup": True
 }
 
 def load_levels():
@@ -71,7 +71,6 @@ def save_levels(levels):
 
 levels = load_levels()
 
-
 def add_xp(user_id: str, amount: int):
     user = levels.get(user_id, {"xp": 0, "level": 0})
     user["xp"] += amount
@@ -84,7 +83,6 @@ def add_xp(user_id: str, amount: int):
     levels[user_id] = user
     save_levels(levels)
     return user, leveled_up
-
 
 
 
@@ -255,7 +253,9 @@ async def catch(ctx, *, name: str):
         if streaks[user_id] >= 3:
             msg += f" 🔥 {ctx.author.display_name} is on fire with {streaks[user_id]} catches in a row!"
         await ctx.send(msg)
-        add_xp(user_id, LEVEL_CONFIG['catch_xp'])
+        user, leveled_up = add_xp(user_id, LEVEL_CONFIG['catch_xp'])
+        if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+            await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
         await update_roles(ctx.guild)
     else:
         streaks[user_id] = 0
@@ -535,7 +535,8 @@ async def admin_commands(ctx):
     embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`", inline=False)
     embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`, `!forceroles`", inline=False)
     embed.add_field(name="📺 Channel List", value="`!listfollows`", inline=False)
-    embed.add_field(name="⭐ Levels & Game", value="`!level`, `!leaderboard`, `!duel @user`, `!setxp <type> <amount>`, `!getxpconfig`, `!togglelevelup`, `!resetlevel @user`, `!resetalllevels`", inline=False)
+    embed.add_field(name="⭐ Levels & Game", value="`!level`, `!leaderboard`, `!duel @user`, `!setxp <type> <amount>`, `!getxpconfig`, `!togglelevelup`, `!resetlevel @user`, `!resetalllevels confirm`", inline=False)
+    embed.add_field(name="⭐ Levels & Game", value="`!resetalllevels confirm`", inline=False)
     try:
         await ctx.author.send(embed=embed)
         await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
@@ -546,12 +547,14 @@ async def admin_commands(ctx):
 # =========================
 # FUN COMMANDS: MEMES & JOKES
 # =========================
+
 @bot.command(name="meme")
 async def meme_cmd(ctx):
     if not memes:
         await ctx.send("📭 No memes available.")
         return
     meme = random.choice(memes)
+    sent = False
     if isinstance(meme, dict):
         title = meme.get("title", "")
         url = meme.get("url", "")
@@ -559,44 +562,41 @@ async def meme_cmd(ctx):
             embed = discord.Embed(title=title or "😂 Meme", color=discord.Color.random())
             embed.set_image(url=url)
             await ctx.send(embed=embed)
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
-        else:
+            sent = True
+        elif title:
             await ctx.send(title or "😂 Meme")
-    else:
+            sent = True
+    if not sent:
         await ctx.send(str(meme))
     user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
+@bot.command
 @bot.command(name="joke")
 async def joke_cmd(ctx):
     if not jokes:
         await ctx.send("📭 No jokes available.")
         return
     joke = random.choice(jokes)
+    sent = False
     if isinstance(joke, dict):
         setup = joke.get("setup")
         punchline = joke.get("punchline")
+        text = joke.get("text")
         if setup and punchline:
             await ctx.send(f"🤣 {setup}\n||{punchline}||")
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
-        else:
-            await ctx.send(joke.get("text", "😂 Bad joke file format!"))
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
-    else:
+            sent = True
+        elif text:
+            await ctx.send(text)
+            sent = True
+    if not sent:
         await ctx.send(str(joke))
     user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
-
-
+# =========================
 # =========================
 # LIST FOLLOWED STREAMERS & YOUTUBE CHANNELS
 # =========================
@@ -643,6 +643,22 @@ async def remove_youtube(ctx, channel_id: str):
 
 
 # =========================
+# ADMIN: RESET ALL LEVELS (CONFIRMATION REQUIRED)
+# =========================
+@bot.command(name="resetalllevels")
+@commands.has_permissions(manage_guild=True)
+async def reset_all_levels(ctx, confirm: str = None):
+    if confirm != "confirm":
+        await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
+        return
+    global levels
+    levels = {}
+    save_levels(levels)
+    await ctx.send("♻️ All user levels and XP have been reset.")
+
+
+
+# =========================
 # LEVELS & GAME
 # =========================
 @bot.command(name="level")
@@ -674,20 +690,24 @@ async def duel_cmd(ctx, opponent: discord.Member):
         return
     import random
     winner = random.choice([ctx.author, opponent])
-    add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"])
+    user, leveled_up = add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"])
     await ctx.send(f"⚔️ {ctx.author.display_name} dueled {opponent.display_name}! **{winner.display_name}** wins and gains {LEVEL_CONFIG['duel_win_xp']} XP!")
+    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+        await ctx.send(f"🎉 {winner.mention} leveled up to **Level {user['level']}**!")
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
-    add_xp(str(message.author.id), LEVEL_CONFIG["message_xp"])
+    user, leveled_up = add_xp(str(message.author.id), LEVEL_CONFIG["message_xp"])
+    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+        await message.channel.send(f"🎉 {message.author.mention} leveled up to **Level {user['level']}**!")
     await bot.process_commands(message)
 
 
 
 # =========================
-# ADMIN: CONFIGURE XP REWARDS
+# ADMIN: XP CONFIG / TOGGLES / RESETS
 # =========================
 @bot.command(name="setxp")
 @commands.has_permissions(manage_guild=True)
@@ -703,19 +723,11 @@ async def setxp(ctx, xp_type: str, amount: int):
         await ctx.send("❌ Invalid type. Use one of: message, catch, meme, joke, duel_win")
         return
     LEVEL_CONFIG[key_map[xp_type]] = amount
-
-    # Save config into levels.json under 'config'
     data = load_levels()
     data["_config"] = LEVEL_CONFIG
     save_levels(data)
-
     await ctx.send(f"✅ Updated **{xp_type}** XP to {amount}.")
 
-
-
-# =========================
-# ADMIN: VIEW XP CONFIG
-# =========================
 @bot.command(name="getxpconfig")
 @commands.has_permissions(manage_guild=True)
 async def getxpconfig(ctx):
@@ -724,29 +736,16 @@ async def getxpconfig(ctx):
         embed.add_field(name=key, value=str(value), inline=True)
     await ctx.send(embed=embed)
 
-
-
-# =========================
-# ADMIN: TOGGLE LEVEL-UP ANNOUNCEMENTS
-# =========================
 @bot.command(name="togglelevelup")
 @commands.has_permissions(manage_guild=True)
 async def toggle_levelup(ctx):
     LEVEL_CONFIG["announce_levelup"] = not LEVEL_CONFIG.get("announce_levelup", True)
     state = "ON" if LEVEL_CONFIG["announce_levelup"] else "OFF"
-
-    # Save to levels.json under _config
     data = load_levels()
     data["_config"] = LEVEL_CONFIG
     save_levels(data)
-
     await ctx.send(f"🔔 Level-up announcements are now **{state}**.")
 
-
-
-# =========================
-# ADMIN: RESET USER LEVEL
-# =========================
 @bot.command(name="resetlevel")
 @commands.has_permissions(manage_guild=True)
 async def reset_level(ctx, member: discord.Member):
@@ -757,23 +756,6 @@ async def reset_level(ctx, member: discord.Member):
         await ctx.send(f"♻️ Reset {member.display_name}'s level and XP to 0.")
     else:
         await ctx.send(f"⚠️ {member.display_name} has no recorded XP/level yet.")
-
-
-
-
-# =========================
-# ADMIN: RESET ALL LEVELS (CONFIRMATION REQUIRED)
-# =========================
-@bot.command(name="resetalllevels")
-@commands.has_permissions(manage_guild=True)
-async def reset_all_levels(ctx, confirm: str = None):
-    if confirm != "confirm":
-        await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
-        return
-    global levels
-    levels = {}
-    save_levels(levels)
-    await ctx.send("♻️ All user levels and XP have been reset.")
 
 
 # =========================
@@ -803,5 +785,3 @@ async def on_ready():
         await update_roles(guild)
 
 bot.run(DISCORD_TOKEN)
-
-LEVEL_CONFIG["announce_levelup"] = True

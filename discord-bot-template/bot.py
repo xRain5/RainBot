@@ -219,7 +219,25 @@ else:
 if "stoppokemon" not in bot.all_commands:
     @bot.command(name="stoppokemon")
     
+    # Ensure old version of the command is cleared before redefining
+bot.remove_command("pokemonstatus")
+
+if "pokemonstatus" not in bot.all_commands:
     @bot.command(name="pokemonstatus")
+    async def pokemonstatus(ctx):
+        global pokemon_spawning, active_pokemon
+        if not pokemon_spawning:
+            await ctx.send("🛑 Pokémon spawning is currently **OFF**.")
+            return
+        if active_pokemon:
+            name, rarity, shiny = active_pokemon
+            shiny_text = " ✨SHINY✨" if shiny else ""
+            await ctx.send(f"✅ Spawning is **ON**. Active Pokémon: **{name}** ({rarity}){shiny_text}")
+        else:
+            await ctx.send("✅ Spawning is **ON**, but no Pokémon is currently active.")
+else:
+    print("⏩ Skipping duplicate registration for !pokemonstatus")
+
     
     @bot.command(name="setcatchcd")
     @commands.has_permissions(manage_guild=True)

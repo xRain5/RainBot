@@ -1,8 +1,7 @@
 import os
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 import requests
-import aiohttp
 import asyncio
 import random
 import json
@@ -15,9 +14,10 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
-NOTIFY_CHANNEL_ID = int(os.getenv("NOTIFY_CHANNEL_ID", 0))  # Discord channel for notifications
-POKEMON_CHANNEL_ID = int(os.getenv("POKEMON_CHANNEL_ID", 0))  # Channel for Pokémon spawns
-GUILD_ID = int(os.getenv("GUILD_ID", 0))  # Server ID for assigning roles
+NOTIFY_CHANNEL_ID = int(os.getenv("NOTIFY_CHANNEL_ID", 0))
+POKEMON_CHANNEL_ID = int(os.getenv("POKEMON_CHANNEL_ID", 0))
+GUILD_ID = int(os.getenv("GUILD_ID", 0))
+SHINY_RATE = float(os.getenv("SHINY_RATE", 0.01))  # Default 1%
 
 # --- Data file paths ---
 NOTIFY_FILE = "notify_data.json"
@@ -57,132 +57,46 @@ streamers = notify_data["streamers"]
 youtube_channels = notify_data["youtube_channels"]
 
 poke_data = load_pokemon_data()
-pokedex = poke_data["pokedex"]  # user_id -> list of caught Pokémon
-streaks = poke_data["streaks"]  # user_id -> streak count
+pokedex = poke_data["pokedex"]
+streaks = poke_data["streaks"]
 
 # =========================
-# Twitch setup
+# Pokémon Data
 # =========================
-TWITCH_ACCESS_TOKEN = None
+ALL_GEN1 = [
+    "Bulbasaur","Ivysaur","Venusaur","Charmander","Charmeleon","Charizard",
+    "Squirtle","Wartortle","Blastoise","Caterpie","Metapod","Butterfree",
+    "Weedle","Kakuna","Beedrill","Pidgey","Pidgeotto","Pidgeot",
+    "Rattata","Raticate","Spearow","Fearow","Ekans","Arbok",
+    "Pikachu","Raichu","Sandshrew","Sandslash","Nidoran♀","Nidorina","Nidoqueen",
+    "Nidoran♂","Nidorino","Nidoking","Clefairy","Clefable","Vulpix","Ninetales",
+    "Jigglypuff","Wigglytuff","Zubat","Golbat","Oddish","Gloom","Vileplume",
+    "Paras","Parasect","Venonat","Venomoth","Diglett","Dugtrio","Meowth","Persian",
+    "Psyduck","Golduck","Mankey","Primeape","Growlithe","Arcanine","Poliwag","Poliwhirl","Poliwrath",
+    "Abra","Kadabra","Alakazam","Machop","Machoke","Machamp","Bellsprout","Weepinbell","Victreebel",
+    "Tentacool","Tentacruel","Geodude","Graveler","Golem","Ponyta","Rapidash","Slowpoke","Slowbro",
+    "Magnemite","Magneton","Farfetch’d","Doduo","Dodrio","Seel","Dewgong","Grimer","Muk","Shellder","Cloyster",
+    "Gastly","Haunter","Gengar","Onix","Drowzee","Hypno","Krabby","Kingler","Voltorb","Electrode",
+    "Exeggcute","Exeggutor","Cubone","Marowak","Hitmonlee","Hitmonchan","Lickitung","Koffing","Weezing","Rhyhorn","Rhydon",
+    "Chansey","Tangela","Kangaskhan","Horsea","Seadra","Goldeen","Seaking","Staryu","Starmie","Mr. Mime","Scyther","Jynx","Electabuzz","Magmar","Pinsir","Tauros",
+    "Magikarp","Gyarados","Lapras","Ditto","Eevee","Vaporeon","Jolteon","Flareon","Porygon",
+    "Omanyte","Omastar","Kabuto","Kabutops","Aerodactyl","Snorlax","Articuno","Zapdos","Moltres","Dratini","Dragonair","Dragonite","Mewtwo","Mew"
+]
 
-def get_twitch_token():
-    global TWITCH_ACCESS_TOKEN
-    url = "https://id.twitch.tv/oauth2/token"
-    params = {
-        "client_id": TWITCH_CLIENT_ID,
-        "client_secret": TWITCH_SECRET,
-        "grant_type": "client_credentials"
-    }
-    resp = requests.post(url, params=params)
-    data = resp.json()
-    TWITCH_ACCESS_TOKEN = data["access_token"]
-    return TWITCH_ACCESS_TOKEN
-
-def twitch_headers():
-    if TWITCH_ACCESS_TOKEN is None:
-        get_twitch_token()
-    return {
-        "Client-ID": TWITCH_CLIENT_ID,
-        "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}"
-    }
-
-# =========================
-# Admin Commands
-# =========================
-@bot.command(name="addstreamer")
-@commands.has_permissions(manage_guild=True)
-async def add_streamer(ctx, twitch_name: str):
-    twitch_name = twitch_name.lower()
-    if twitch_name in streamers:
-        await ctx.send(f"⚠️ **{twitch_name}** is already in the Twitch list.")
-        return
-    streamers.append(twitch_name)
-    save_notify_data()
-    await ctx.send(f"✅ Added **{twitch_name}** to Twitch notifications.")
-
-@bot.command(name="addyoutube")
-@commands.has_permissions(manage_guild=True)
-async def add_youtube(ctx, channel_id: str):
-    if channel_id in youtube_channels:
-        await ctx.send(f"⚠️ Channel `{channel_id}` is already in YouTube list.")
-        return
-    youtube_channels[channel_id] = channel_id
-    save_notify_data()
-    await ctx.send(f"✅ Added YouTube channel `{channel_id}`.")
-
-@bot.command(name="resetpokedex")
-@commands.has_permissions(manage_guild=True)
-async def reset_pokedex(ctx, member: discord.Member):
-    user_id = str(member.id)
-    if user_id in pokedex:
-        pokedex[user_id] = []
-        save_pokemon_data()
-        await ctx.send(f"🗑️ Pokédex reset for {member.display_name}.")
-    else:
-        await ctx.send(f"⚠️ {member.display_name} has no Pokédex to reset.")
-
-@bot.command(name="resetstreak")
-@commands.has_permissions(manage_guild=True)
-async def reset_streak(ctx, member: discord.Member):
-    user_id = str(member.id)
-    if user_id in streaks:
-        streaks[user_id] = 0
-        save_pokemon_data()
-        await ctx.send(f"🛑 Streak reset for {member.display_name}.")
-    else:
-        await ctx.send(f"⚠️ {member.display_name} had no streak to reset.")
+POKEMON_RARITIES = {
+    "common": [p for p in ALL_GEN1 if p not in ["Bulbasaur","Charmander","Squirtle","Dratini","Dragonair","Dragonite","Articuno","Zapdos","Moltres","Mewtwo","Mew","Snorlax","Lapras","Ditto","Eevee","Omanyte","Kabuto","Aerodactyl"]],
+    "uncommon": ["Eevee","Ditto","Omanyte","Kabuto","Growlithe","Abra","Gastly","Cubone","Scyther","Pinsir","Jynx","Electabuzz","Magmar","Hitmonlee","Hitmonchan"],
+    "rare": ["Bulbasaur","Charmander","Squirtle","Dratini","Dragonair","Dragonite","Lapras","Snorlax","Aerodactyl"],
+    "legendary": ["Articuno","Zapdos","Moltres","Mewtwo","Mew"]
+}
+CATCH_RATES = {"common": 0.8,"uncommon": 0.5,"rare": 0.3,"legendary": 0.05}
 
 # =========================
-# Fun commands
-# =========================
-@bot.command()
-async def joke(ctx):
-    jokes = [
-        "Why don’t skeletons ever fight each other? They don’t have the guts!",
-        "I told my computer I needed a break, and it froze.",
-        "Why did the gamer cross the road? To get to the next level!",
-    ]
-    await ctx.send(random.choice(jokes))
-
-@bot.command()
-async def roll(ctx, sides: int = 6):
-    result = random.randint(1, sides)
-    await ctx.send(f"🎲 You rolled a {result} on a {sides}-sided dice!")
-
-# =========================
-# Pokémon Game System
+# Pokémon Game
 # =========================
 pokemon_spawning = False
 pokemon_loop_task = None
-active_pokemon = None  # currently spawned
-
-# Gen 1 Pokémon split into rarity tiers
-POKEMON_RARITIES = {
-    "common": [
-        "Pidgey", "Rattata", "Caterpie", "Weedle", "Zubat", "Spearow", "Oddish", "Poliwag",
-        "Machop", "Geodude", "Krabby", "Magnemite", "Voltorb", "Tentacool", "Sandshrew",
-        "Ekans", "Paras", "Diglett", "Meowth", "Doduo"
-    ],
-    "uncommon": [
-        "Pikachu", "Clefairy", "Vulpix", "Jigglypuff", "Growlithe", "Abra", "Bellsprout",
-        "Slowpoke", "Seel", "Gastly", "Drowzee", "Horsea", "Cubone", "Koffing", "Rhyhorn",
-        "Exeggcute", "Chansey", "Eevee", "Omanyte", "Kabuto"
-    ],
-    "rare": [
-        "Bulbasaur", "Charmander", "Squirtle", "Farfetch’d", "Onix", "Hitmonlee", "Hitmonchan",
-        "Lickitung", "Kangaskhan", "Scyther", "Pinsir", "Tauros", "Gyarados", "Lapras", "Ditto",
-        "Aerodactyl", "Snorlax", "Dratini", "Dragonair"
-    ],
-    "legendary": [
-        "Articuno", "Zapdos", "Moltres", "Mewtwo", "Mew"
-    ]
-}
-CATCH_RATES = {
-    "common": 0.8,
-    "uncommon": 0.5,
-    "rare": 0.3,
-    "legendary": 0.1
-}
+active_pokemon = None
 
 async def pokemon_spawner():
     global active_pokemon
@@ -195,8 +109,10 @@ async def pokemon_spawner():
         await asyncio.sleep(random.randint(30, 90))
         rarity = random.choices(list(POKEMON_RARITIES.keys()), weights=[70, 20, 9, 1])[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
-        active_pokemon = (pokemon, rarity)
-        await channel.send(f"A wild **{pokemon}** ({rarity}) appeared! Type `!catch {pokemon}` to try and catch it!")
+        shiny = random.random() < SHINY_RATE
+        active_pokemon = (pokemon, rarity, shiny)
+        shiny_text = " ✨SHINY✨" if shiny else ""
+        await channel.send(f"A wild **{pokemon}** ({rarity}){shiny_text} appeared! Type `!catch {pokemon}` to try and catch it!")
 
 @bot.command(name="startpokemon")
 @commands.has_permissions(manage_guild=True)
@@ -227,7 +143,7 @@ async def catch(ctx, *, name: str):
     if not active_pokemon:
         await ctx.send("❌ There is no Pokémon to catch right now!")
         return
-    pokemon, rarity = active_pokemon
+    pokemon, rarity, shiny = active_pokemon
     if name.lower() != pokemon.lower():
         await ctx.send(f"❌ That’s not the Pokémon! The wild Pokémon escaped...")
         active_pokemon = None
@@ -235,10 +151,12 @@ async def catch(ctx, *, name: str):
     chance = CATCH_RATES[rarity]
     user_id = str(ctx.author.id)
     if random.random() <= chance:
-        pokedex.setdefault(user_id, []).append({"name": pokemon, "rarity": rarity})
+        entry = {"name": pokemon, "rarity": rarity, "shiny": shiny}
+        pokedex.setdefault(user_id, []).append(entry)
         streaks[user_id] = streaks.get(user_id, 0) + 1
         save_pokemon_data()
-        msg = f"✅ {ctx.author.mention} caught **{pokemon}** ({rarity})!"
+        shiny_text = " ✨SHINY✨" if shiny else ""
+        msg = f"✅ {ctx.author.mention} caught **{pokemon}** ({rarity}){shiny_text}!"
         if streaks[user_id] >= 3:
             msg += f" 🔥 {ctx.author.display_name} is on fire with {streaks[user_id]} catches in a row!"
         await ctx.send(msg)
@@ -255,97 +173,51 @@ async def pokedex_cmd(ctx, member: discord.Member = None):
     if user_id not in pokedex or not pokedex[user_id]:
         await ctx.send(f"📭 {user.display_name} has not caught any Pokémon yet!")
         return
-
-    grouped = {"common": [], "uncommon": [], "rare": [], "legendary": []}
+    grouped = {"common": [], "uncommon": [], "rare": [], "legendary": [], "shiny": []}
     for entry in pokedex[user_id]:
-        grouped[entry["rarity"]].append(entry["name"])
-
-    embed = discord.Embed(
-        title=f"📘 Pokédex for {user.display_name}",
-        color=discord.Color.green()
-    )
+        if entry["shiny"]:
+            grouped["shiny"].append(entry["name"])
+        else:
+            grouped[entry["rarity"]].append(entry["name"])
+    embed = discord.Embed(title=f"📘 Pokédex for {user.display_name}", color=discord.Color.green())
     for rarity, mons in grouped.items():
         if mons:
-            embed.add_field(
-                name=f"{rarity.capitalize()} ({len(mons)})",
-                value=", ".join(mons),
-                inline=False
-            )
-
+            embed.add_field(name=f"{rarity.capitalize()} ({len(mons)})", value=", ".join(mons), inline=False)
     streak_count = streaks.get(user_id, 0)
     if streak_count > 0:
         embed.set_footer(text=f"🔥 Current streak: {streak_count}")
-
     await ctx.send(embed=embed)
 
 @bot.command(name="top")
 async def top(ctx):
-    """Show leaderboard of most Pokémon caught"""
     if not pokedex:
         await ctx.send("📭 No Pokémon have been caught yet!")
         return
-
     leaderboard = []
     for user_id, mons in pokedex.items():
-        leaderboard.append((user_id, len(mons)))
-
-    leaderboard.sort(key=lambda x: x[1], reverse=True)
+        total = len(mons)
+        shiny_count = sum(1 for m in mons if m["shiny"])
+        leaderboard.append((user_id, total, shiny_count))
+    leaderboard.sort(key=lambda x: (x[1], x[2]), reverse=True)
     top_users = leaderboard[:10]
-
     embed = discord.Embed(title="🏆 Top Pokémon Trainers", color=discord.Color.gold())
-    for i, (user_id, count) in enumerate(top_users, 1):
+    for i, (user_id, total, shinies) in enumerate(top_users, 1):
         user = await bot.fetch_user(int(user_id))
-        embed.add_field(name=f"#{i} {user.display_name}", value=f"{count} Pokémon", inline=False)
-
+        embed.add_field(name=f"#{i} {user.display_name}", value=f"{total} Pokémon ({shinies} shiny)", inline=False)
     await ctx.send(embed=embed)
 
 # =========================
-# Help menus
-# =========================
-@bot.command(name="commands")
-@commands.cooldown(1, 30, commands.BucketType.user)
-async def commands_list(ctx):
-    embed = discord.Embed(title="📖 Available Commands", color=discord.Color.blue())
-    embed.add_field(name="🎮 Fun", value="`!joke`, `!roll [sides]`", inline=False)
-    embed.add_field(name="🐾 Pokémon", value="`!catch <pokemon>`, `!pokedex`, `!top`", inline=False)
-    try:
-        await ctx.author.send(embed=embed)
-        await ctx.send("📬 I've sent you a DM with the list of commands!")
-    except discord.Forbidden:
-        await ctx.send(embed=embed)
-
-@bot.command(name="admincommands")
-@commands.has_permissions(manage_guild=True)
-@commands.cooldown(1, 30, commands.BucketType.user)
-async def admin_commands(ctx):
-    embed = discord.Embed(title="⚙️ Admin Commands", color=discord.Color.red())
-    embed.add_field(name="🛠️ Moderation", value="`!addstreamer`, `!addyoutube`", inline=False)
-    embed.add_field(
-        name="🐾 Pokémon Control",
-        value="`!startpokemon`, `!stoppokemon`, `!resetpokedex @user`, `!resetstreak @user`",
-        inline=False
-    )
-    try:
-        await ctx.author.send(embed=embed)
-        await ctx.send("📬 I've sent you a DM with the list of admin commands!")
-    except discord.Forbidden:
-        await ctx.send(embed=embed)
-
-# =========================
-# Error handler
+# Error + startup
 # =========================
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, CommandOnCooldown):
-        await ctx.send(f"⏳ Please wait {error.retry_after:.1f}s before using this command again.", delete_after=5)
+        await ctx.send(f"⏳ Wait {error.retry_after:.1f}s before reusing this.", delete_after=5)
     elif isinstance(error, commands.CommandNotFound):
         await ctx.send("❌ That command doesn’t exist. Try `!commands`.", delete_after=5)
     else:
         raise error
 
-# =========================
-# Bot startup
-# =========================
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")

@@ -760,12 +760,16 @@ async def reset_level(ctx, member: discord.Member):
 
 
 
+
 # =========================
-# ADMIN: RESET ALL LEVELS
+# ADMIN: RESET ALL LEVELS (CONFIRMATION REQUIRED)
 # =========================
 @bot.command(name="resetalllevels")
 @commands.has_permissions(manage_guild=True)
-async def reset_all_levels(ctx):
+async def reset_all_levels(ctx, confirm: str = None):
+    if confirm != "confirm":
+        await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
+        return
     global levels
     levels = {}
     save_levels(levels)

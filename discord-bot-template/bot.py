@@ -183,7 +183,7 @@ async def pokemon_spawner():
             await asyncio.sleep(60)
             continue
 
-        await asyncio.sleep(300)  # 5 minutes  # 30 minutes
+        await asyncio.sleep(1800)  # 5 minutes  # 30 minutes
         rarity = random.choices(["common","uncommon","rare","legendary"], weights=[70, 20, 9, 1])[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
         shiny = (random.random() < SHINY_RATE)

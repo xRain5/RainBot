@@ -70,16 +70,28 @@ def save_levels(levels):
 
 levels = load_levels()
 
-def add_xp(user_id: str, amount: int):
+
+def add_xp(user_id: str, amount: int, ctx: discord.Message = None):
     user = levels.get(user_id, {"xp": 0, "level": 0})
     user["xp"] += amount
     import math
     new_level = int(math.sqrt(user["xp"] / 50))
-    if new_level > user.get("level", 0):
+    leveled_up = new_level > user.get("level", 0)
+    if leveled_up:
         user["level"] = new_level
     levels[user_id] = user
     save_levels(levels)
+
+    # Announce level up if context available
+    if leveled_up and ctx:
+        try:
+            channel = ctx.channel
+            import asyncio
+            asyncio.create_task(channel.send(f"🎉 {ctx.author.mention} leveled up to **Level {new_level}**!"))
+        except Exception:
+            pass
     return user
+
 
 
 
@@ -250,7 +262,7 @@ async def catch(ctx, *, name: str):
         if streaks[user_id] >= 3:
             msg += f" 🔥 {ctx.author.display_name} is on fire with {streaks[user_id]} catches in a row!"
         await ctx.send(msg)
-        add_xp(user_id, LEVEL_CONFIG["catch_xp"])
+        add_xp(user_id, LEVEL_CONFIG['catch_xp'], ctx)
         await update_roles(ctx.guild)
     else:
         streaks[user_id] = 0
@@ -283,7 +295,7 @@ async def pokedex_cmd(ctx, member: discord.Member = None):
     if streak_count > 0:
         embed.set_footer(text=f"🔥 Current streak: {streak_count}")
     await ctx.send(embed=embed)
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
 
 @bot.command(name="top")
 async def top(ctx):
@@ -305,7 +317,7 @@ async def top(ctx):
             name = f"User {user_id}"
         embed.add_field(name=f"#{i} {name}", value=f"{total} Pokémon ({shinies} shiny)", inline=False)
     await ctx.send(embed=embed)
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
 
 # =========================
 # ROLE MANAGEMENT
@@ -526,6 +538,7 @@ async def admin_commands(ctx):
     embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`", inline=False)
     embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`, `!forceroles`", inline=False)
     embed.add_field(name="📺 Channel List", value="`!listfollows`", inline=False)
+    embed.add_field(name="⭐ Levels & Game", value="`!level`, `!leaderboard`, `!duel @user`, `!setxp <type> <amount>`, `!getxpconfig`", inline=False)
     try:
         await ctx.author.send(embed=embed)
         await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
@@ -549,12 +562,12 @@ async def meme_cmd(ctx):
             embed = discord.Embed(title=title or "😂 Meme", color=discord.Color.random())
             embed.set_image(url=url)
             await ctx.send(embed=embed)
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
         else:
             await ctx.send(title or "😂 Meme")
     else:
         await ctx.send(str(meme))
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
 
 @bot.command(name="joke")
 async def joke_cmd(ctx):
@@ -567,13 +580,13 @@ async def joke_cmd(ctx):
         punchline = joke.get("punchline")
         if setup and punchline:
             await ctx.send(f"🤣 {setup}\n||{punchline}||")
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["joke_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
         else:
             await ctx.send(joke.get("text", "😂 Bad joke file format!"))
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["joke_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
     else:
         await ctx.send(str(joke))
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["joke_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
 
 
 
@@ -588,7 +601,7 @@ async def list_follows(ctx):
     embed.add_field(name="Twitch Streamers", value="\n".join(twitch_list), inline=False)
     embed.add_field(name="YouTube Channels", value="\n".join(youtube_list), inline=False)
     await ctx.send(embed=embed)
-    add_xp(str(ctx.author.id), LEVEL_CONFIG["meme_xp"])
+    add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
 
 
 
@@ -652,15 +665,55 @@ async def duel_cmd(ctx, opponent: discord.Member):
         return
     import random
     winner = random.choice([ctx.author, opponent])
-    add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"])
+    add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"], ctx)
     await ctx.send(f"⚔️ {ctx.author.display_name} dueled {opponent.display_name}! **{winner.display_name}** wins and gains {LEVEL_CONFIG['duel_win_xp']} XP!")
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
-    add_xp(str(message.author.id), LEVEL_CONFIG["message_xp"])
+    add_xp(str(message.author.id), LEVEL_CONFIG["message_xp"], message)
     await bot.process_commands(message)
+
+
+
+# =========================
+# ADMIN: CONFIGURE XP REWARDS
+# =========================
+@bot.command(name="setxp")
+@commands.has_permissions(manage_guild=True)
+async def setxp(ctx, xp_type: str, amount: int):
+    key_map = {
+        "message": "message_xp",
+        "catch": "catch_xp",
+        "meme": "meme_xp",
+        "joke": "joke_xp",
+        "duel_win": "duel_win_xp"
+    }
+    if xp_type not in key_map:
+        await ctx.send("❌ Invalid type. Use one of: message, catch, meme, joke, duel_win")
+        return
+    LEVEL_CONFIG[key_map[xp_type]] = amount
+
+    # Save config into levels.json under 'config'
+    data = load_levels()
+    data["_config"] = LEVEL_CONFIG
+    save_levels(data)
+
+    await ctx.send(f"✅ Updated **{xp_type}** XP to {amount}.")
+
+
+
+# =========================
+# ADMIN: VIEW XP CONFIG
+# =========================
+@bot.command(name="getxpconfig")
+@commands.has_permissions(manage_guild=True)
+async def getxpconfig(ctx):
+    embed = discord.Embed(title="⚙️ XP Configuration", color=discord.Color.purple())
+    for key, value in LEVEL_CONFIG.items():
+        embed.add_field(name=key, value=str(value), inline=True)
+    await ctx.send(embed=embed)
 
 
 # =========================

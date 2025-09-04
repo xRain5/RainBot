@@ -887,3 +887,5 @@ async def on_ready():
 
 
 bot.run(DISCORD_TOKEN)
+else:
+    print("⏩ Skipping duplicate registration for !setcatchcd")

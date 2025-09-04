@@ -7,6 +7,8 @@ import asyncio
 import random
 import json
 
+print("Bot starting up...")
+
 # --- ENV VARS ---
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")

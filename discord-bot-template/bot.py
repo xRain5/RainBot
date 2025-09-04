@@ -198,143 +198,158 @@ async def pokemon_spawner():
         )
 
 
-@bot.command(name="startpokemon")
-@commands.has_permissions(manage_guild=True)
-async def startpokemon(ctx):
-    global pokemon_spawning, pokemon_loop_task
-    if pokemon_spawning:
-        await ctx.send("Pokémon spawns are already running!")
-        return
-    pokemon_spawning = True
-    pokemon_loop_task = asyncio.create_task(pokemon_spawner())
-    await ctx.send("🐾 Pokémon spawning has started!")
+if "startpokemon" not in bot.all_commands:
+    @bot.command(name="startpokemon")
+    @commands.has_permissions(manage_guild=True)
+    async def startpokemon(ctx):
+        global pokemon_spawning, pokemon_loop_task
+        if pokemon_spawning:
+            await ctx.send("Pokémon spawns are already running!")
+            return
+        pokemon_spawning = True
+        pokemon_loop_task = asyncio.create_task(pokemon_spawner())
+        await ctx.send("🐾 Pokémon spawning has started!")
+else:
+    print("⏩ Skipping duplicate registration for !startpokemon")
 
-@bot.command(name="stoppokemon")
-
-@bot.command(name="pokemonstatus")
-
-@bot.command(name="setcatchcd")
-@commands.has_permissions(manage_guild=True)
-async def setcatchcd(ctx, seconds: int):
-    global CATCH_COOLDOWN
-    if seconds < 0:
-        await ctx.send("❌ Cooldown must be 0 or greater.")
-        return
-    CATCH_COOLDOWN = seconds
-    await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
-
-async def pokemonstatus(ctx):
-    global pokemon_spawning, active_pokemon
-    if not pokemon_spawning:
-        await ctx.send("🛑 Pokémon spawning is currently **OFF**.")
-        return
-    if active_pokemon:
-        name, rarity, shiny = active_pokemon
-        shiny_text = " ✨SHINY✨" if shiny else ""
-        await ctx.send(f"✅ Spawning is **ON**. Active Pokémon: **{name}** ({rarity}){shiny_text}")
-    else:
-        await ctx.send("✅ Spawning is **ON**, but no Pokémon is currently active.")
-
-@commands.has_permissions(manage_guild=True)
-async def stoppokemon(ctx):
-    global pokemon_spawning, pokemon_loop_task
-    if not pokemon_spawning:
-        await ctx.send("Pokémon spawns are not running.")
-        return
-    pokemon_spawning = False
-    if pokemon_loop_task:
-        pokemon_loop_task.cancel()
-    await ctx.send("🐾 Pokémon spawning has stopped!")
-
-@bot.command(name="catch")
-async def catch(ctx, *, name: str):
-    # Cooldown check
-    now = time.time()
-    last_time = catch_cooldowns.get(ctx.author.id, 0)
-    if now - last_time < CATCH_COOLDOWN:
-        remaining = int(CATCH_COOLDOWN - (now - last_time))
-        await ctx.send(f"⏳ Please wait {remaining}s before trying to catch again.")
-        return
-    catch_cooldowns[ctx.author.id] = now
-    global active_pokemon
-    if not active_pokemon:
-        await ctx.send("❌ There is no Pokémon to catch right now!")
-        return
-    pokemon, rarity, shiny = active_pokemon
-    if name.strip().lower() != pokemon.lower():
-        await ctx.send("❌ That’s not the Pokémon! The wild Pokémon escaped…")
-        active_pokemon = None
-        return
-
-    chance = CATCH_RATES[rarity]
-    user_id = str(ctx.author.id)
-
-    if random.random() <= chance:
-        entry = {"name": pokemon, "rarity": rarity, "shiny": shiny}
-        pokedex.setdefault(user_id, []).append(entry)
-        streaks[user_id] = streaks.get(user_id, 0) + 1
-        save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
-        shiny_text = " ✨SHINY✨" if shiny else ""
-        msg = f"✅ {ctx.author.mention} caught **{pokemon}** ({rarity}){shiny_text}!"
-        if streaks[user_id] >= 3:
-            msg += f" 🔥 {ctx.author.display_name} is on fire with {streaks[user_id]} catches in a row!"
-        await ctx.send(msg)
-        user, leveled_up = add_xp(user_id, LEVEL_CONFIG['catch_xp'])
-        if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-            await ctx.send(f"🎉 <@{user_id}> leveled up to **Level {user['level']}**!")
-        await update_roles(ctx.guild)
-    else:
-        streaks[user_id] = 0
-        save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
-        await ctx.send(f"💨 The wild {pokemon} escaped {ctx.author.mention}!")
-    active_pokemon = None
-
-@bot.command(name="pokedex")
-async def pokedex_cmd(ctx, member: discord.Member = None):
-    user = member or ctx.author
-    user_id = str(user.id)
-    if user_id not in pokedex or not pokedex[user_id]:
-        await ctx.send(f"📭 {user.display_name} has not caught any Pokémon yet!")
-        return
-
-    grouped = {"common": [], "uncommon": [], "rare": [], "legendary": [], "shiny": []}
-    for entry in pokedex[user_id]:
-        if entry["shiny"]:
-            grouped["shiny"].append(entry["name"])
+if "stoppokemon" not in bot.all_commands:
+    @bot.command(name="stoppokemon")
+    
+    @bot.command(name="pokemonstatus")
+    
+    @bot.command(name="setcatchcd")
+    @commands.has_permissions(manage_guild=True)
+    async def setcatchcd(ctx, seconds: int):
+        global CATCH_COOLDOWN
+        if seconds < 0:
+            await ctx.send("❌ Cooldown must be 0 or greater.")
+            return
+        CATCH_COOLDOWN = seconds
+        await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
+    
+    async def pokemonstatus(ctx):
+        global pokemon_spawning, active_pokemon
+        if not pokemon_spawning:
+            await ctx.send("🛑 Pokémon spawning is currently **OFF**.")
+            return
+        if active_pokemon:
+            name, rarity, shiny = active_pokemon
+            shiny_text = " ✨SHINY✨" if shiny else ""
+            await ctx.send(f"✅ Spawning is **ON**. Active Pokémon: **{name}** ({rarity}){shiny_text}")
         else:
-            grouped[entry["rarity"]].append(entry["name"])
+            await ctx.send("✅ Spawning is **ON**, but no Pokémon is currently active.")
+    
+    @commands.has_permissions(manage_guild=True)
+    async def stoppokemon(ctx):
+        global pokemon_spawning, pokemon_loop_task
+        if not pokemon_spawning:
+            await ctx.send("Pokémon spawns are not running.")
+            return
+        pokemon_spawning = False
+        if pokemon_loop_task:
+            pokemon_loop_task.cancel()
+        await ctx.send("🐾 Pokémon spawning has stopped!")
+else:
+    print("⏩ Skipping duplicate registration for !stoppokemon")
 
-    embed = discord.Embed(title=f"📘 Pokédex for {user.display_name}", color=discord.Color.green())
-    for rarity in ["shiny","legendary","rare","uncommon","common"]:
-        mons = grouped[rarity]
-        if mons:
-            embed.add_field(name=f"{rarity.capitalize()} ({len(mons)})", value=", ".join(sorted(mons)), inline=False)
+if "catch" not in bot.all_commands:
+    @bot.command(name="catch")
+    async def catch(ctx, *, name: str):
+        # Cooldown check
+        now = time.time()
+        last_time = catch_cooldowns.get(ctx.author.id, 0)
+        if now - last_time < CATCH_COOLDOWN:
+            remaining = int(CATCH_COOLDOWN - (now - last_time))
+            await ctx.send(f"⏳ Please wait {remaining}s before trying to catch again.")
+            return
+        catch_cooldowns[ctx.author.id] = now
+        global active_pokemon
+        if not active_pokemon:
+            await ctx.send("❌ There is no Pokémon to catch right now!")
+            return
+        pokemon, rarity, shiny = active_pokemon
+        if name.strip().lower() != pokemon.lower():
+            await ctx.send("❌ That’s not the Pokémon! The wild Pokémon escaped…")
+            active_pokemon = None
+            return
+    
+        chance = CATCH_RATES[rarity]
+        user_id = str(ctx.author.id)
+    
+        if random.random() <= chance:
+            entry = {"name": pokemon, "rarity": rarity, "shiny": shiny}
+            pokedex.setdefault(user_id, []).append(entry)
+            streaks[user_id] = streaks.get(user_id, 0) + 1
+            save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+            shiny_text = " ✨SHINY✨" if shiny else ""
+            msg = f"✅ {ctx.author.mention} caught **{pokemon}** ({rarity}){shiny_text}!"
+            if streaks[user_id] >= 3:
+                msg += f" 🔥 {ctx.author.display_name} is on fire with {streaks[user_id]} catches in a row!"
+            await ctx.send(msg)
+            user, leveled_up = add_xp(user_id, LEVEL_CONFIG['catch_xp'])
+            if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+                await ctx.send(f"🎉 <@{user_id}> leveled up to **Level {user['level']}**!")
+            await update_roles(ctx.guild)
+        else:
+            streaks[user_id] = 0
+            save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+            await ctx.send(f"💨 The wild {pokemon} escaped {ctx.author.mention}!")
+        active_pokemon = None
+else:
+    print("⏩ Skipping duplicate registration for !catch")
 
-    streak_count = streaks.get(user_id, 0)
-    if streak_count > 0:
-        embed.set_footer(text=f"🔥 Current streak: {streak_count}")
-    await ctx.send(embed=embed)
+if "pokedex" not in bot.all_commands:
+    @bot.command(name="pokedex")
+    async def pokedex_cmd(ctx, member: discord.Member = None):
+        user = member or ctx.author
+        user_id = str(user.id)
+        if user_id not in pokedex or not pokedex[user_id]:
+            await ctx.send(f"📭 {user.display_name} has not caught any Pokémon yet!")
+            return
+    
+        grouped = {"common": [], "uncommon": [], "rare": [], "legendary": [], "shiny": []}
+        for entry in pokedex[user_id]:
+            if entry["shiny"]:
+                grouped["shiny"].append(entry["name"])
+            else:
+                grouped[entry["rarity"]].append(entry["name"])
+    
+        embed = discord.Embed(title=f"📘 Pokédex for {user.display_name}", color=discord.Color.green())
+        for rarity in ["shiny","legendary","rare","uncommon","common"]:
+            mons = grouped[rarity]
+            if mons:
+                embed.add_field(name=f"{rarity.capitalize()} ({len(mons)})", value=", ".join(sorted(mons)), inline=False)
+    
+        streak_count = streaks.get(user_id, 0)
+        if streak_count > 0:
+            embed.set_footer(text=f"🔥 Current streak: {streak_count}")
+        await ctx.send(embed=embed)
+else:
+    print("⏩ Skipping duplicate registration for !pokedex")
 
-@bot.command(name="top")
-async def top(ctx):
-    if not pokedex:
-        await ctx.send("📭 No Pokémon have been caught yet!")
-        return
-    leaderboard = []
-    for user_id, mons in pokedex.items():
-        total = len(mons)
-        shiny_count = sum(1 for m in mons if m["shiny"])
-        leaderboard.append((user_id, total, shiny_count))
-    leaderboard.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    embed = discord.Embed(title="🏆 Top Pokémon Trainers", color=discord.Color.gold())
-    for i, (user_id, total, shinies) in enumerate(leaderboard[:10], 1):
-        try:
-            user = await bot.fetch_user(int(user_id))
-            name = user.display_name
-        except Exception:
-            name = f"User {user_id}"
-        embed.add_field(name=f"#{i} {name}", value=f"{total} Pokémon ({shinies} shiny)", inline=False)
-    await ctx.send(embed=embed)
+if "top" not in bot.all_commands:
+    @bot.command(name="top")
+    async def top(ctx):
+        if not pokedex:
+            await ctx.send("📭 No Pokémon have been caught yet!")
+            return
+        leaderboard = []
+        for user_id, mons in pokedex.items():
+            total = len(mons)
+            shiny_count = sum(1 for m in mons if m["shiny"])
+            leaderboard.append((user_id, total, shiny_count))
+        leaderboard.sort(key=lambda x: (x[1], x[2]), reverse=True)
+        embed = discord.Embed(title="🏆 Top Pokémon Trainers", color=discord.Color.gold())
+        for i, (user_id, total, shinies) in enumerate(leaderboard[:10], 1):
+            try:
+                user = await bot.fetch_user(int(user_id))
+                name = user.display_name
+            except Exception:
+                name = f"User {user_id}"
+            embed.add_field(name=f"#{i} {name}", value=f"{total} Pokémon ({shinies} shiny)", inline=False)
+        await ctx.send(embed=embed)
+else:
+    print("⏩ Skipping duplicate registration for !top")
 
 # =========================
 # ROLE MANAGEMENT
@@ -370,15 +385,18 @@ async def update_roles(guild: discord.Guild):
         if str(member.id) == shiny_trainer_id and shiny_role not in member.roles:
             await member.add_roles(shiny_role)
 
-@bot.command(name="forceroles")
-@commands.has_permissions(manage_guild=True)
-async def forceroles(ctx):
-    guild = ctx.guild or bot.get_guild(GUILD_ID)
-    if not guild:
-        await ctx.send("⚠️ Guild not found for role updates.")
-        return
-    await update_roles(guild)
-    await ctx.send("🔄 Roles refreshed.")
+if "forceroles" not in bot.all_commands:
+    @bot.command(name="forceroles")
+    @commands.has_permissions(manage_guild=True)
+    async def forceroles(ctx):
+        guild = ctx.guild or bot.get_guild(GUILD_ID)
+        if not guild:
+            await ctx.send("⚠️ Guild not found for role updates.")
+            return
+        await update_roles(guild)
+        await ctx.send("🔄 Roles refreshed.")
+else:
+    print("⏩ Skipping duplicate registration for !forceroles")
 
 # =========================
 # TWITCH NOTIFIER
@@ -485,172 +503,201 @@ async def youtube_notifier():
 # =========================
 # ADMIN: ADD STREAMERS / YT
 # =========================
-@bot.command(name="addstreamer")
-@commands.has_permissions(manage_guild=True)
-async def add_streamer(ctx, twitch_name: str):
-    name = twitch_name.lower()
-    if name in streamers:
-        await ctx.send(f"⚠️ **{name}** is already in the Twitch list.")
-        return
-    streamers.append(name)
-    notify_data["streamers"] = streamers
-    save_notify_data(notify_data)
-    await ctx.send(f"✅ Added **{name}** to Twitch notifications.")
+if "addstreamer" not in bot.all_commands:
+    @bot.command(name="addstreamer")
+    @commands.has_permissions(manage_guild=True)
+    async def add_streamer(ctx, twitch_name: str):
+        name = twitch_name.lower()
+        if name in streamers:
+            await ctx.send(f"⚠️ **{name}** is already in the Twitch list.")
+            return
+        streamers.append(name)
+        notify_data["streamers"] = streamers
+        save_notify_data(notify_data)
+        await ctx.send(f"✅ Added **{name}** to Twitch notifications.")
+else:
+    print("⏩ Skipping duplicate registration for !addstreamer")
 
-@bot.command(name="addyoutube")
-@commands.has_permissions(manage_guild=True)
-async def add_youtube(ctx, channel_id: str):
-    if channel_id in youtube_channels:
-        await ctx.send(f"⚠️ Channel `{channel_id}` already tracked.")
-        return
-    youtube_channels[channel_id] = ""  # no last video yet
-    notify_data["youtube_channels"] = youtube_channels
-    save_notify_data(notify_data)
-    await ctx.send(f"✅ Added YouTube channel `{channel_id}`. I’ll notify on the next upload.")
+if "addyoutube" not in bot.all_commands:
+    @bot.command(name="addyoutube")
+    @commands.has_permissions(manage_guild=True)
+    async def add_youtube(ctx, channel_id: str):
+        if channel_id in youtube_channels:
+            await ctx.send(f"⚠️ Channel `{channel_id}` already tracked.")
+            return
+        youtube_channels[channel_id] = ""  # no last video yet
+        notify_data["youtube_channels"] = youtube_channels
+        save_notify_data(notify_data)
+        await ctx.send(f"✅ Added YouTube channel `{channel_id}`. I’ll notify on the next upload.")
+else:
+    print("⏩ Skipping duplicate registration for !addyoutube")
 
 # =========================
 # DM COMMAND MENUS
 # =========================
-@bot.command(name="commands")
-@commands.cooldown(1, 20, commands.BucketType.user)
-async def commands_list(ctx):
-    embed = discord.Embed(title="📖 Commands", color=discord.Color.blue())
-    embed.add_field(
-        name="🎮 Fun / Pokémon",
-        value="`!startpokemon`*, `!stoppokemon`*, `!catch <name>`, `!pokedex [@user]`, `!top`",
-        inline=False
-    )
-    embed.add_field(
-        name="🤣 Fun Extras",
-        value="`!meme`, `!joke`",
-        inline=False
-    )
-    embed.add_field(
-        name="🔔 Notifications",
-        value="Auto Twitch & YouTube alerts in the notify channel",
-        inline=False
-    )
-    embed.add_field(
-        name="📺 Channel List",
-        value="`!listfollows`",
-        inline=False
-    )
-    embed.add_field(
-        name="🔔 Notifications",
-        value="Auto Twitch & YouTube alerts in the notify channel",
-        inline=False
-    )
-    embed.set_footer(text="* admin only")
-    try:
-        await ctx.author.send(embed=embed)
-        await ctx.reply("📬 Sent you a DM with the commands!", mention_author=False)
-    except discord.Forbidden:
-        await ctx.reply(embed=embed, mention_author=False)
+if "commands" not in bot.all_commands:
+    @bot.command(name="commands")
+    @commands.cooldown(1, 20, commands.BucketType.user)
+    async def commands_list(ctx):
+        embed = discord.Embed(title="📖 Commands", color=discord.Color.blue())
+        embed.add_field(
+            name="🎮 Fun / Pokémon",
+            value="`!startpokemon`*, `!stoppokemon`*, `!catch <name>`, `!pokedex [@user]`, `!top`",
+            inline=False
+        )
+        embed.add_field(
+            name="🤣 Fun Extras",
+            value="`!meme`, `!joke`",
+            inline=False
+        )
+        embed.add_field(
+            name="🔔 Notifications",
+            value="Auto Twitch & YouTube alerts in the notify channel",
+            inline=False
+        )
+        embed.add_field(
+            name="📺 Channel List",
+            value="`!listfollows`",
+            inline=False
+        )
+        embed.add_field(
+            name="🔔 Notifications",
+            value="Auto Twitch & YouTube alerts in the notify channel",
+            inline=False
+        )
+        embed.set_footer(text="* admin only")
+        try:
+            await ctx.author.send(embed=embed)
+            await ctx.reply("📬 Sent you a DM with the commands!", mention_author=False)
+        except discord.Forbidden:
+            await ctx.reply(embed=embed, mention_author=False)
+else:
+    print("⏩ Skipping duplicate registration for !commands")
 
-@bot.command(name="admincommands")
-@commands.has_permissions(manage_guild=True)
-@commands.cooldown(1, 20, commands.BucketType.user)
-async def admin_commands(ctx):
-    embed = discord.Embed(title="⚙️ Admin Commands", color=discord.Color.red())
-    embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`", inline=False)
-    embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`, `!forceroles`", inline=False)
-    embed.add_field(name="📺 Channel List", value="`!listfollows`", inline=False)
-    try:
-        await ctx.author.send(embed=embed)
-        await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
-    except discord.Forbidden:
-        await ctx.reply(embed=embed, mention_author=False)
-
+if "admincommands" not in bot.all_commands:
+    @bot.command(name="admincommands")
+    @commands.has_permissions(manage_guild=True)
+    @commands.cooldown(1, 20, commands.BucketType.user)
+    async def admin_commands(ctx):
+        embed = discord.Embed(title="⚙️ Admin Commands", color=discord.Color.red())
+        embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`", inline=False)
+        embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`, `!forceroles`", inline=False)
+        embed.add_field(name="📺 Channel List", value="`!listfollows`", inline=False)
+        try:
+            await ctx.author.send(embed=embed)
+            await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
+        except discord.Forbidden:
+            await ctx.reply(embed=embed, mention_author=False)
+    
+else:
+    print("⏩ Skipping duplicate registration for !admincommands")
 
 # =========================
 # FUN COMMANDS: MEMES & JOKES
 # =========================
-@bot.command(name="meme")
-async def meme_cmd(ctx):
-    if not memes:
-        await ctx.send("📭 No memes available.")
-        return
-    meme = random.choice(memes)
-    sent = False
-    if isinstance(meme, dict):
-        title = meme.get("title", "")
-        url = meme.get("url", "")
-        if url:
-            embed = discord.Embed(title=title or "😂 Meme", color=discord.Color.random())
-            embed.set_image(url=url)
-            await ctx.send(embed=embed)
-            sent = True
-        elif title:
-            await ctx.send(title or "😂 Meme")
-            sent = True
-    if not sent:
-        await ctx.send(str(meme))
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
-@bot.command(name="joke")
-async def joke_cmd(ctx):
-    if not jokes:
-        await ctx.send("📭 No jokes available.")
-        return
-    joke = random.choice(jokes)
-    sent = False
-    if isinstance(joke, dict):
-        setup = joke.get("setup")
-        punchline = joke.get("punchline")
-        text = joke.get("text")
-        if setup and punchline:
-            await ctx.send(f"🤣 {setup}\n||{punchline}||")
-            sent = True
-        elif text:
-            await ctx.send(text)
-            sent = True
-    if not sent:
-        await ctx.send(str(joke))
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
+if "meme" not in bot.all_commands:
+    @bot.command(name="meme")
+    async def meme_cmd(ctx):
+        if not memes:
+            await ctx.send("📭 No memes available.")
+            return
+        meme = random.choice(memes)
+        sent = False
+        if isinstance(meme, dict):
+            title = meme.get("title", "")
+            url = meme.get("url", "")
+            if url:
+                embed = discord.Embed(title=title or "😂 Meme", color=discord.Color.random())
+                embed.set_image(url=url)
+                await ctx.send(embed=embed)
+                sent = True
+            elif title:
+                await ctx.send(title or "😂 Meme")
+                sent = True
+        if not sent:
+            await ctx.send(str(meme))
+        user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
+        if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+            await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
+else:
+    print("⏩ Skipping duplicate registration for !meme")
+
+if "joke" not in bot.all_commands:
+    @bot.command(name="joke")
+    async def joke_cmd(ctx):
+        if not jokes:
+            await ctx.send("📭 No jokes available.")
+            return
+        joke = random.choice(jokes)
+        sent = False
+        if isinstance(joke, dict):
+            setup = joke.get("setup")
+            punchline = joke.get("punchline")
+            text = joke.get("text")
+            if setup and punchline:
+                await ctx.send(f"🤣 {setup}\n||{punchline}||")
+                sent = True
+            elif text:
+                await ctx.send(text)
+                sent = True
+        if not sent:
+            await ctx.send(str(joke))
+        user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
+        if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+            await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
+else:
+    print("⏩ Skipping duplicate registration for !joke")
+
 # =========================
 # LIST FOLLOWED STREAMERS & YOUTUBE CHANNELS
 # =========================
-@bot.command(name="listfollows")
-async def list_follows(ctx):
-    twitch_list = streamers if streamers else ["(none)"]
-    youtube_list = list(youtube_channels.keys()) if youtube_channels else ["(none)"]
-    embed = discord.Embed(title="📺 Followed Channels", color=discord.Color.blue())
-    embed.add_field(name="Twitch Streamers", value="\n".join(twitch_list), inline=False)
-    embed.add_field(name="YouTube Channels", value="\n".join(youtube_list), inline=False)
-    await ctx.send(embed=embed)
-
-
+if "listfollows" not in bot.all_commands:
+    @bot.command(name="listfollows")
+    async def list_follows(ctx):
+        twitch_list = streamers if streamers else ["(none)"]
+        youtube_list = list(youtube_channels.keys()) if youtube_channels else ["(none)"]
+        embed = discord.Embed(title="📺 Followed Channels", color=discord.Color.blue())
+        embed.add_field(name="Twitch Streamers", value="\n".join(twitch_list), inline=False)
+        embed.add_field(name="YouTube Channels", value="\n".join(youtube_list), inline=False)
+        await ctx.send(embed=embed)
+    
+    
+else:
+    print("⏩ Skipping duplicate registration for !listfollows")
 
 # =========================
 # ADMIN: REMOVE STREAMERS / YT
 # =========================
-@bot.command(name="removestreamer")
-@commands.has_permissions(manage_guild=True)
-async def remove_streamer(ctx, twitch_name: str):
-    name = twitch_name.lower()
-    if name not in streamers:
-        await ctx.send(f"⚠️ **{name}** is not in the Twitch list.")
-        return
-    streamers.remove(name)
-    notify_data["streamers"] = streamers
-    save_notify_data(notify_data)
-    await ctx.send(f"✅ Removed **{name}** from Twitch notifications.")
+if "removestreamer" not in bot.all_commands:
+    @bot.command(name="removestreamer")
+    @commands.has_permissions(manage_guild=True)
+    async def remove_streamer(ctx, twitch_name: str):
+        name = twitch_name.lower()
+        if name not in streamers:
+            await ctx.send(f"⚠️ **{name}** is not in the Twitch list.")
+            return
+        streamers.remove(name)
+        notify_data["streamers"] = streamers
+        save_notify_data(notify_data)
+        await ctx.send(f"✅ Removed **{name}** from Twitch notifications.")
+else:
+    print("⏩ Skipping duplicate registration for !removestreamer")
 
-@bot.command(name="removeyoutube")
-@commands.has_permissions(manage_guild=True)
-async def remove_youtube(ctx, channel_id: str):
-    if channel_id not in youtube_channels:
-        await ctx.send(f"⚠️ Channel `{channel_id}` is not tracked.")
-        return
-    youtube_channels.pop(channel_id, None)
-    notify_data["youtube_channels"] = youtube_channels
-    save_notify_data(notify_data)
-    await ctx.send(f"✅ Removed YouTube channel `{channel_id}`.")
-
-
+if "removeyoutube" not in bot.all_commands:
+    @bot.command(name="removeyoutube")
+    @commands.has_permissions(manage_guild=True)
+    async def remove_youtube(ctx, channel_id: str):
+        if channel_id not in youtube_channels:
+            await ctx.send(f"⚠️ Channel `{channel_id}` is not tracked.")
+            return
+        youtube_channels.pop(channel_id, None)
+        notify_data["youtube_channels"] = youtube_channels
+        save_notify_data(notify_data)
+        await ctx.send(f"✅ Removed YouTube channel `{channel_id}`.")
+    
+    
+else:
+    print("⏩ Skipping duplicate registration for !removeyoutube")
 
 # =========================
 # LEVELS SYSTEM
@@ -693,101 +740,126 @@ def add_xp(user_id: str, amount: int):
     save_levels(levels)
     return user, leveled_up
 
-@bot.command(name="level")
-async def level_cmd(ctx, member: discord.Member = None):
-    user = member or ctx.author
-    data = levels.get(str(user.id), {"xp": 0, "level": 0})
-    await ctx.send(f"⭐ {user.display_name} - Level {data.get('level', 0)} ({data.get('xp', 0)} XP)")
+if "level" not in bot.all_commands:
+    @bot.command(name="level")
+    async def level_cmd(ctx, member: discord.Member = None):
+        user = member or ctx.author
+        data = levels.get(str(user.id), {"xp": 0, "level": 0})
+        await ctx.send(f"⭐ {user.display_name} - Level {data.get('level', 0)} ({data.get('xp', 0)} XP)")
+else:
+    print("⏩ Skipping duplicate registration for !level")
 
-@bot.command(name="leaderboard")
-async def leaderboard_cmd(ctx):
-    if not levels:
-        await ctx.send("📭 No levels recorded yet!")
-        return
-    sorted_lvls = sorted(levels.items(), key=lambda kv: kv[1].get("xp", 0), reverse=True)
-    embed = discord.Embed(title="🏆 Level Leaderboard", color=discord.Color.gold())
-    for i, (uid, data) in enumerate(sorted_lvls[:10], 1):
-        try:
-            user = await bot.fetch_user(int(uid))
-            name = user.display_name
-        except Exception:
-            name = f"User {uid}"
-        embed.add_field(name=f"#{i} {name}", value=f"Level {data.get('level', 0)} ({data.get('xp', 0)} XP)", inline=False)
-    await ctx.send(embed=embed)
+if "leaderboard" not in bot.all_commands:
+    @bot.command(name="leaderboard")
+    async def leaderboard_cmd(ctx):
+        if not levels:
+            await ctx.send("📭 No levels recorded yet!")
+            return
+        sorted_lvls = sorted(levels.items(), key=lambda kv: kv[1].get("xp", 0), reverse=True)
+        embed = discord.Embed(title="🏆 Level Leaderboard", color=discord.Color.gold())
+        for i, (uid, data) in enumerate(sorted_lvls[:10], 1):
+            try:
+                user = await bot.fetch_user(int(uid))
+                name = user.display_name
+            except Exception:
+                name = f"User {uid}"
+            embed.add_field(name=f"#{i} {name}", value=f"Level {data.get('level', 0)} ({data.get('xp', 0)} XP)", inline=False)
+        await ctx.send(embed=embed)
+else:
+    print("⏩ Skipping duplicate registration for !leaderboard")
 
-@bot.command(name="duel")
-async def duel_cmd(ctx, opponent: discord.Member):
-    if opponent.id == ctx.author.id:
-        await ctx.send("❌ You cannot duel yourself!")
-        return
-    import random
-    winner = random.choice([ctx.author, opponent])
-    user, leveled_up = add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"])
-    await ctx.send(f"⚔️ {ctx.author.display_name} dueled {opponent.display_name}! **{winner.display_name}** wins and gains {LEVEL_CONFIG['duel_win_xp']} XP!")
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {winner.mention} leveled up to **Level {user['level']}**!")
+if "duel" not in bot.all_commands:
+    @bot.command(name="duel")
+    async def duel_cmd(ctx, opponent: discord.Member):
+        if opponent.id == ctx.author.id:
+            await ctx.send("❌ You cannot duel yourself!")
+            return
+        import random
+        winner = random.choice([ctx.author, opponent])
+        user, leveled_up = add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"])
+        await ctx.send(f"⚔️ {ctx.author.display_name} dueled {opponent.display_name}! **{winner.display_name}** wins and gains {LEVEL_CONFIG['duel_win_xp']} XP!")
+        if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+            await ctx.send(f"🎉 {winner.mention} leveled up to **Level {user['level']}**!")
+else:
+    print("⏩ Skipping duplicate registration for !duel")
 
 # =========================
 # ADMIN: XP CONFIG / TOGGLES / RESETS
 # =========================
-@bot.command(name="setxp")
-@commands.has_permissions(manage_guild=True)
-async def setxp(ctx, xp_type: str, amount: int):
-    key_map = {
-        "message": "message_xp",
-        "catch": "catch_xp",
-        "meme": "meme_xp",
-        "joke": "joke_xp",
-        "duel_win": "duel_win_xp"
-    }
-    if xp_type not in key_map:
-        await ctx.send("❌ Invalid type. Use one of: message, catch, meme, joke, duel_win")
-        return
-    LEVEL_CONFIG[key_map[xp_type]] = amount
-    data = load_levels()
-    data["_config"] = LEVEL_CONFIG
-    save_levels(data)
-    await ctx.send(f"✅ Updated **{xp_type}** XP to {amount}.")
+if "setxp" not in bot.all_commands:
+    @bot.command(name="setxp")
+    @commands.has_permissions(manage_guild=True)
+    async def setxp(ctx, xp_type: str, amount: int):
+        key_map = {
+            "message": "message_xp",
+            "catch": "catch_xp",
+            "meme": "meme_xp",
+            "joke": "joke_xp",
+            "duel_win": "duel_win_xp"
+        }
+        if xp_type not in key_map:
+            await ctx.send("❌ Invalid type. Use one of: message, catch, meme, joke, duel_win")
+            return
+        LEVEL_CONFIG[key_map[xp_type]] = amount
+        data = load_levels()
+        data["_config"] = LEVEL_CONFIG
+        save_levels(data)
+        await ctx.send(f"✅ Updated **{xp_type}** XP to {amount}.")
+else:
+    print("⏩ Skipping duplicate registration for !setxp")
 
-@bot.command(name="getxpconfig")
-@commands.has_permissions(manage_guild=True)
-async def getxpconfig(ctx):
-    embed = discord.Embed(title="⚙️ XP Configuration", color=discord.Color.purple())
-    for key, value in LEVEL_CONFIG.items():
-        embed.add_field(name=key, value=str(value), inline=True)
-    await ctx.send(embed=embed)
+if "getxpconfig" not in bot.all_commands:
+    @bot.command(name="getxpconfig")
+    @commands.has_permissions(manage_guild=True)
+    async def getxpconfig(ctx):
+        embed = discord.Embed(title="⚙️ XP Configuration", color=discord.Color.purple())
+        for key, value in LEVEL_CONFIG.items():
+            embed.add_field(name=key, value=str(value), inline=True)
+        await ctx.send(embed=embed)
+else:
+    print("⏩ Skipping duplicate registration for !getxpconfig")
 
-@bot.command(name="togglelevelup")
-@commands.has_permissions(manage_guild=True)
-async def toggle_levelup(ctx):
-    LEVEL_CONFIG["announce_levelup"] = not LEVEL_CONFIG.get("announce_levelup", True)
-    state = "ON" if LEVEL_CONFIG["announce_levelup"] else "OFF"
-    data = load_levels()
-    data["_config"] = LEVEL_CONFIG
-    save_levels(data)
-    await ctx.send(f"🔔 Level-up announcements are now **{state}**.")
+if "togglelevelup" not in bot.all_commands:
+    @bot.command(name="togglelevelup")
+    @commands.has_permissions(manage_guild=True)
+    async def toggle_levelup(ctx):
+        LEVEL_CONFIG["announce_levelup"] = not LEVEL_CONFIG.get("announce_levelup", True)
+        state = "ON" if LEVEL_CONFIG["announce_levelup"] else "OFF"
+        data = load_levels()
+        data["_config"] = LEVEL_CONFIG
+        save_levels(data)
+        await ctx.send(f"🔔 Level-up announcements are now **{state}**.")
+else:
+    print("⏩ Skipping duplicate registration for !togglelevelup")
 
-@bot.command(name="resetlevel")
-@commands.has_permissions(manage_guild=True)
-async def reset_level(ctx, member: discord.Member):
-    user_id = str(member.id)
-    if user_id in levels:
-        levels[user_id] = {"xp": 0, "level": 0}
+if "resetlevel" not in bot.all_commands:
+    @bot.command(name="resetlevel")
+    @commands.has_permissions(manage_guild=True)
+    async def reset_level(ctx, member: discord.Member):
+        user_id = str(member.id)
+        if user_id in levels:
+            levels[user_id] = {"xp": 0, "level": 0}
+            save_levels(levels)
+            await ctx.send(f"♻️ Reset {member.display_name}'s level and XP to 0.")
+        else:
+            await ctx.send(f"⚠️ {member.display_name} has no recorded XP/level yet.")
+else:
+    print("⏩ Skipping duplicate registration for !resetlevel")
+
+if "resetalllevels" not in bot.all_commands:
+    @bot.command(name="resetalllevels")
+    @commands.has_permissions(manage_guild=True)
+    async def reset_all_levels(ctx, confirm: str = None):
+        if confirm != "confirm":
+            await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
+            return
+        global levels
+        levels = {}
         save_levels(levels)
-        await ctx.send(f"♻️ Reset {member.display_name}'s level and XP to 0.")
-    else:
-        await ctx.send(f"⚠️ {member.display_name} has no recorded XP/level yet.")
+        await ctx.send("♻️ All user levels and XP have been reset.")
+else:
+    print("⏩ Skipping duplicate registration for !resetalllevels")
 
-@bot.command(name="resetalllevels")
-@commands.has_permissions(manage_guild=True)
-async def reset_all_levels(ctx, confirm: str = None):
-    if confirm != "confirm":
-        await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
-        return
-    global levels
-    levels = {}
-    save_levels(levels)
-    await ctx.send("♻️ All user levels and XP have been reset.")
 # =========================
 # ERRORS + STARTUP
 # =========================

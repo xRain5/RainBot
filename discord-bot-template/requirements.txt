@@ -1,5 +1,5 @@
-py-cord==2.4.1
-feedparser==6.0.11
-requests==2.31.0
-aiohttp==3.9.5
-python-dotenv==1.0.1
+py-cord
+feedparser
+requests
+aiohttp
+python-dotenv

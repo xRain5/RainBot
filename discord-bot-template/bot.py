@@ -250,6 +250,7 @@ else:
     print("⏩ Skipping duplicate registration for !pokemonstatus")
 
 
+
     
     @bot.command(name="setcatchcd")
     @commands.has_permissions(manage_guild=True)

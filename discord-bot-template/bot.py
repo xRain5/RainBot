@@ -20,17 +20,48 @@ POKEMON_CHANNEL_ID = int(os.getenv("POKEMON_CHANNEL_ID", 0))  # Channel for Pok�
 GUILD_ID = int(os.getenv("GUILD_ID", 0))  # Server ID for assigning roles
 
 DATA_FILE = "notify_data.json"
+POKEMON_FILE = "pokemon_data.json"
 
 # --- Discord bot setup ---
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# --- Persistence Helpers (notify system) ---
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {"streamers": [], "youtube_channels": {}}
+
+def save_data():
+    with open(DATA_FILE, "w") as f:
+        json.dump({"streamers": streamers, "youtube_channels": youtube_channels}, f)
+
+# --- Persistence Helpers (Pokémon system) ---
+def load_pokemon_data():
+    if os.path.exists(POKEMON_FILE):
+        with open(POKEMON_FILE, "r") as f:
+            return json.load(f)
+    return {"pokedex": {}, "streaks": {}}
+
+def save_pokemon_data():
+    with open(POKEMON_FILE, "w") as f:
+        json.dump({"pokedex": pokedex, "streaks": streaks}, f)
+
+# Load initial data
+data = load_data()
+streamers = data["streamers"]
+youtube_channels = data["youtube_channels"]
+
+poke_data = load_pokemon_data()
+pokedex = poke_data["pokedex"]  # user_id -> list of caught Pokémon
+streaks = poke_data["streaks"]  # user_id -> streak count
+
 # --- Twitch setup ---
 TWITCH_ACCESS_TOKEN = None
 
 def get_twitch_token():
-    """Fetch a new Twitch OAuth token"""
     global TWITCH_ACCESS_TOKEN
     url = "https://id.twitch.tv/oauth2/token"
     params = {
@@ -44,31 +75,12 @@ def get_twitch_token():
     return TWITCH_ACCESS_TOKEN
 
 def twitch_headers():
-    """Return headers with token"""
     if TWITCH_ACCESS_TOKEN is None:
         get_twitch_token()
     return {
         "Client-ID": TWITCH_CLIENT_ID,
         "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}"
     }
-
-# --- Persistence Helpers ---
-def load_data():
-    """Load notify data from file"""
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {"streamers": [], "youtube_channels": {}}
-
-def save_data():
-    """Save notify data to file"""
-    with open(DATA_FILE, "w") as f:
-        json.dump({"streamers": streamers, "youtube_channels": youtube_channels}, f)
-
-# Load initial data
-data = load_data()
-streamers = data["streamers"]
-youtube_channels = data["youtube_channels"]
 
 # --- Store last notified states ---
 last_twitch_status = {}
@@ -80,10 +92,9 @@ last_youtube_video = {}
 @bot.command(name="addstreamer")
 @commands.has_permissions(manage_guild=True)
 async def add_streamer(ctx, twitch_name: str):
-    """Add a Twitch streamer for notifications"""
     twitch_name = twitch_name.lower()
     if twitch_name in streamers:
-        await ctx.send(f"⚠️ **{twitch_name}** is already in the Twitch notifications list.")
+        await ctx.send(f"⚠️ **{twitch_name}** is already in the Twitch list.")
         return
     streamers.append(twitch_name)
     save_data()
@@ -92,20 +103,18 @@ async def add_streamer(ctx, twitch_name: str):
 @bot.command(name="addyoutube")
 @commands.has_permissions(manage_guild=True)
 async def add_youtube(ctx, channel_id: str):
-    """Add a YouTube channel for notifications"""
     if channel_id in youtube_channels:
-        await ctx.send(f"⚠️ Channel `{channel_id}` is already in YouTube notifications.")
+        await ctx.send(f"⚠️ Channel `{channel_id}` is already in YouTube list.")
         return
     youtube_channels[channel_id] = channel_id
     save_data()
-    await ctx.send(f"✅ Added YouTube channel `{channel_id}` for notifications.")
+    await ctx.send(f"✅ Added YouTube channel `{channel_id}`.")
 
 # =========================
 # Fun commands
 # =========================
 @bot.command()
 async def joke(ctx):
-    """Tell a random joke"""
     jokes = [
         "Why don’t skeletons ever fight each other? They don’t have the guts!",
         "I told my computer I needed a break, and it froze.",
@@ -115,29 +124,105 @@ async def joke(ctx):
 
 @bot.command()
 async def roll(ctx, sides: int = 6):
-    """Roll a dice"""
     result = random.randint(1, sides)
     await ctx.send(f"🎲 You rolled a {result} on a {sides}-sided dice!")
 
 # =========================
-# Auto-updating Help Menus
+# Pokémon Game System
+# =========================
+pokemon_spawning = False
+pokemon_loop_task = None
+active_pokemon = None  # currently spawned
+
+POKEMON_RARITIES = {
+    "common": ["Pidgey", "Rattata", "Caterpie", "Zubat"],
+    "uncommon": ["Eevee", "Vulpix", "Sandshrew"],
+    "rare": ["Snorlax", "Lapras", "Dratini"],
+    "legendary": ["Mewtwo"]
+}
+CATCH_RATES = {
+    "common": 0.8,
+    "uncommon": 0.5,
+    "rare": 0.3,
+    "legendary": 0.1
+}
+
+async def pokemon_spawner():
+    global active_pokemon
+    await bot.wait_until_ready()
+    channel = bot.get_channel(POKEMON_CHANNEL_ID)
+    if not channel:
+        print("⚠️ Pokémon channel not found.")
+        return
+    while pokemon_spawning:
+        await asyncio.sleep(random.randint(30, 90))
+        rarity = random.choices(list(POKEMON_RARITIES.keys()), weights=[70, 20, 9, 1])[0]
+        pokemon = random.choice(POKEMON_RARITIES[rarity])
+        active_pokemon = (pokemon, rarity)
+        await channel.send(f"A wild **{pokemon}** ({rarity}) appeared! Type `!catch {pokemon}` to try and catch it!")
+
+@bot.command(name="startpokemon")
+@commands.has_permissions(manage_guild=True)
+async def startpokemon(ctx):
+    global pokemon_spawning, pokemon_loop_task
+    if pokemon_spawning:
+        await ctx.send("Pokémon spawns are already running!")
+        return
+    pokemon_spawning = True
+    pokemon_loop_task = asyncio.create_task(pokemon_spawner())
+    await ctx.send("🐾 Pokémon spawning has started!")
+
+@bot.command(name="stoppokemon")
+@commands.has_permissions(manage_guild=True)
+async def stoppokemon(ctx):
+    global pokemon_spawning, pokemon_loop_task
+    if not pokemon_spawning:
+        await ctx.send("Pokémon spawns are not running.")
+        return
+    pokemon_spawning = False
+    if pokemon_loop_task:
+        pokemon_loop_task.cancel()
+    await ctx.send("🐾 Pokémon spawning has stopped!")
+
+@bot.command(name="catch")
+async def catch(ctx, *, name: str):
+    global active_pokemon
+    if not active_pokemon:
+        await ctx.send("❌ There is no Pokémon to catch right now!")
+        return
+    pokemon, rarity = active_pokemon
+    if name.lower() != pokemon.lower():
+        await ctx.send(f"❌ That’s not the Pokémon! The wild Pokémon escaped...")
+        active_pokemon = None
+        return
+    chance = CATCH_RATES[rarity]
+    user_id = str(ctx.author.id)
+    if random.random() <= chance:
+        pokedex.setdefault(user_id, []).append(pokemon)
+        streaks[user_id] = streaks.get(user_id, 0) + 1
+        save_pokemon_data()
+        msg = f"✅ {ctx.author.mention} caught **{pokemon}** ({rarity})!"
+        if streaks[user_id] >= 3:
+            msg += f" 🔥 {ctx.author.display_name} is on fire with {streaks[user_id]} catches in a row!"
+        await ctx.send(msg)
+    else:
+        streaks[user_id] = 0
+        save_pokemon_data()
+        await ctx.send(f"💨 The wild {pokemon} escaped {ctx.author.mention}!")
+    active_pokemon = None
+
+# =========================
+# Help menus
 # =========================
 @bot.command(name="commands")
 @commands.cooldown(1, 30, commands.BucketType.user)
 async def commands_list(ctx):
-    """Show a list of available commands for regular users."""
     embed = discord.Embed(
         title="📖 Available Commands",
-        description="Here are the commands you can use:",
         color=discord.Color.blue()
     )
-    user_cmds = [
-        "`!joke` - Get a random joke",
-        "`!roll [sides]` - Roll a dice",
-        "`!catch <pokemon>` - Try catching a Pokémon",
-    ]
-    embed.add_field(name="🎮 Fun", value="\n".join(user_cmds), inline=False)
-
+    embed.add_field(name="🎮 Fun", value="`!joke`, `!roll [sides]`", inline=False)
+    embed.add_field(name="🐾 Pokémon", value="`!catch <pokemon>`", inline=False)
     try:
         await ctx.author.send(embed=embed)
         await ctx.send("📬 I've sent you a DM with the list of commands!")
@@ -148,20 +233,12 @@ async def commands_list(ctx):
 @commands.has_permissions(manage_guild=True)
 @commands.cooldown(1, 30, commands.BucketType.user)
 async def admin_commands(ctx):
-    """Show a list of admin-only commands."""
     embed = discord.Embed(
         title="⚙️ Admin Commands",
-        description="Moderator-only commands:",
         color=discord.Color.red()
     )
-    admin_cmds = [
-        "`!addstreamer <twitch_name>` - Add a Twitch streamer for notifications",
-        "`!addyoutube <channel_id>` - Add a YouTube channel for notifications",
-        "`!startpokemon` - Start Pokémon spawns",
-        "`!stoppokemon` - Stop Pokémon spawns",
-    ]
-    embed.add_field(name="🛠️ Moderation", value="\n".join(admin_cmds), inline=False)
-
+    embed.add_field(name="🛠️ Moderation", value="`!addstreamer`, `!addyoutube`", inline=False)
+    embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`", inline=False)
     try:
         await ctx.author.send(embed=embed)
         await ctx.send("📬 I've sent you a DM with the list of admin commands!")
@@ -169,19 +246,19 @@ async def admin_commands(ctx):
         await ctx.send(embed=embed)
 
 # =========================
-# Error handler for cooldowns
+# Error handler
 # =========================
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, CommandOnCooldown):
         await ctx.send(f"⏳ Please wait {error.retry_after:.1f}s before using this command again.", delete_after=5)
     elif isinstance(error, commands.CommandNotFound):
-        await ctx.send("❌ That command doesn’t exist. Try `!commands` to see available ones.", delete_after=5)
+        await ctx.send("❌ That command doesn’t exist. Try `!commands`.", delete_after=5)
     else:
         raise error
 
 # =========================
-# Run bot
+# Bot startup
 # =========================
 @bot.event
 async def on_ready():

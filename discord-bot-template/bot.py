@@ -135,8 +135,44 @@ async def twitch_notifier():
             print(f"❌ Error checking Twitch streamer {username}:", e)
             traceback.print_exc()
 
+# --- Background task: YouTube new video checker ---
+@tasks.loop(minutes=5)
+async def youtube_notifier():
+    await bot.wait_until_ready()
+    print("🔎 Checking YouTube channels...")
+    channel = bot.get_channel(NOTIFY_CHANNEL_ID)
+    if not channel:
+        print("⚠️ Could not find notify channel, check NOTIFY_CHANNEL_ID")
+        return
+
+    for name, channel_id in youtube_channels.items():
+        print(f"➡️ Checking YouTube channel: {name} ({channel_id})")
+        try:
+            url = f"https://www.googleapis.com/youtube/v3/search?key={YOUTUBE_API_KEY}&channelId={channel_id}&part=snippet,id&order=date&maxResults=1"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        print(f"❌ YouTube API error {resp.status}")
+                        continue
+                    data = await resp.json()
+
+            if "items" in data and len(data["items"]) > 0:
+                video = data["items"][0]
+                video_id = video["id"].get("videoId")
+                title = video["snippet"]["title"]
+
+                last_id = last_youtube_video.get(channel_id)
+                if video_id and video_id != last_id:
+                    print(f"📢 New video found for {name}: {title}")
+                    await channel.send(f"📺 **{name} uploaded a new video!** 🎬 {title}\n👉 https://youtu.be/{video_id}")
+                    last_youtube_video[channel_id] = video_id
+        except Exception as e:
+            print(f"❌ Error checking YouTube channel {name}:", e)
+            traceback.print_exc()
+
 # --- Run bot with crash handling ---
 try:
+    print("▶️ Starting bot.run()...")
     bot.run(DISCORD_TOKEN)
 except Exception as e:
     print("❌ Bot crashed with error:")

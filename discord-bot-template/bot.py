@@ -6,6 +6,7 @@ import requests
 import discord
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandOnCooldown
+import time
 
 print("Bot starting up...")
 
@@ -43,47 +44,6 @@ def load_json_file(path, default):
 
 memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
-
-
-LEVELS_FILE = "levels.json"
-
-LEVEL_CONFIG = {
-    "message_xp": 5,
-    "catch_xp": 20,
-    "meme_xp": 10,
-    "joke_xp": 10,
-    "duel_win_xp": 30,
-    "announce_levelup": True
-}
-
-def load_levels():
-    if os.path.exists(LEVELS_FILE):
-        with open(LEVELS_FILE, "r") as f:
-            try:
-                return json.load(f)
-            except Exception:
-                pass
-    return {}
-
-def save_levels(levels):
-    with open(LEVELS_FILE, "w") as f:
-        json.dump(levels, f, indent=2)
-
-levels = load_levels()
-
-def add_xp(user_id: str, amount: int):
-    user = levels.get(user_id, {"xp": 0, "level": 0})
-    user["xp"] += amount
-    import math
-    new_level = int(math.sqrt(user["xp"] / 50))
-    leveled_up = False
-    if new_level > user.get("level", 0):
-        user["level"] = new_level
-        leveled_up = True
-    levels[user_id] = user
-    save_levels(levels)
-    return user, leveled_up
-
 
 
 # =========================
@@ -182,6 +142,7 @@ POKEMON_RARITIES = {
 }
 CATCH_RATES = {"common": 0.8, "uncommon": 0.5, "rare": 0.3, "legendary": 0.05}
 
+
 # =========================
 # POKÉMON GAME
 # =========================
@@ -189,21 +150,41 @@ pokemon_spawning = False
 pokemon_loop_task = None
 active_pokemon = None  # tuple (name, rarity, shiny)
 
+catch_cooldowns = {}
+CATCH_COOLDOWN = 10  # seconds
+
+
 async def pokemon_spawner():
     global active_pokemon
-    await bot.wait_until_ready()
-    channel = bot.get_channel(POKEMON_CHANNEL_ID)
-    if not channel:
-        print("⚠️ Pokémon channel not found.")
+
+    # Cooldown check
+    now = time.time()
+    last_time = catch_cooldowns.get(ctx.author.id, 0)
+    if now - last_time < CATCH_COOLDOWN:
+        remaining = int(CATCH_COOLDOWN - (now - last_time))
+        await ctx.send(f"⏳ Please wait {remaining}s before trying to catch again.")
         return
+    catch_cooldowns[ctx.author.id] = now
+
+    await bot.wait_until_ready()
     while pokemon_spawning:
+        channel = bot.get_channel(POKEMON_CHANNEL_ID)
+        if not channel:
+            print("⚠️ Pokémon channel not found. Retrying in 60s...")
+            await asyncio.sleep(60)
+            continue
+
         await asyncio.sleep(random.randint(30, 90))
         rarity = random.choices(["common","uncommon","rare","legendary"], weights=[70, 20, 9, 1])[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
         shiny = (random.random() < SHINY_RATE)
         active_pokemon = (pokemon, rarity, shiny)
         shiny_text = " ✨SHINY✨" if shiny else ""
-        await channel.send(f"A wild **{pokemon}** ({rarity}){shiny_text} appeared! Type `!catch {pokemon}` to try and catch it!")
+        await channel.send(
+            f"A wild **{pokemon}** ({rarity}){shiny_text} appeared! "
+            f"Type `!catch {pokemon}` to try and catch it!"
+        )
+
 
 @bot.command(name="startpokemon")
 @commands.has_permissions(manage_guild=True)
@@ -217,6 +198,31 @@ async def startpokemon(ctx):
     await ctx.send("🐾 Pokémon spawning has started!")
 
 @bot.command(name="stoppokemon")
+
+@bot.command(name="pokemonstatus")
+
+@bot.command(name="setcatchcd")
+@commands.has_permissions(manage_guild=True)
+async def setcatchcd(ctx, seconds: int):
+    global CATCH_COOLDOWN
+    if seconds < 0:
+        await ctx.send("❌ Cooldown must be 0 or greater.")
+        return
+    CATCH_COOLDOWN = seconds
+    await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
+
+async def pokemonstatus(ctx):
+    global pokemon_spawning, active_pokemon
+    if not pokemon_spawning:
+        await ctx.send("🛑 Pokémon spawning is currently **OFF**.")
+        return
+    if active_pokemon:
+        name, rarity, shiny = active_pokemon
+        shiny_text = " ✨SHINY✨" if shiny else ""
+        await ctx.send(f"✅ Spawning is **ON**. Active Pokémon: **{name}** ({rarity}){shiny_text}")
+    else:
+        await ctx.send("✅ Spawning is **ON**, but no Pokémon is currently active.")
+
 @commands.has_permissions(manage_guild=True)
 async def stoppokemon(ctx):
     global pokemon_spawning, pokemon_loop_task
@@ -230,6 +236,14 @@ async def stoppokemon(ctx):
 
 @bot.command(name="catch")
 async def catch(ctx, *, name: str):
+    # Cooldown check
+    now = time.time()
+    last_time = catch_cooldowns.get(ctx.author.id, 0)
+    if now - last_time < CATCH_COOLDOWN:
+        remaining = int(CATCH_COOLDOWN - (now - last_time))
+        await ctx.send(f"⏳ Please wait {remaining}s before trying to catch again.")
+        return
+    catch_cooldowns[ctx.author.id] = now
     global active_pokemon
     if not active_pokemon:
         await ctx.send("❌ There is no Pokémon to catch right now!")
@@ -255,7 +269,7 @@ async def catch(ctx, *, name: str):
         await ctx.send(msg)
         user, leveled_up = add_xp(user_id, LEVEL_CONFIG['catch_xp'])
         if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-            await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
+            await ctx.send(f"🎉 <@{user_id}> leveled up to **Level {user['level']}**!")
         await update_roles(ctx.guild)
     else:
         streaks[user_id] = 0
@@ -288,9 +302,6 @@ async def pokedex_cmd(ctx, member: discord.Member = None):
     if streak_count > 0:
         embed.set_footer(text=f"🔥 Current streak: {streak_count}")
     await ctx.send(embed=embed)
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
 @bot.command(name="top")
 async def top(ctx):
@@ -312,9 +323,6 @@ async def top(ctx):
             name = f"User {user_id}"
         embed.add_field(name=f"#{i} {name}", value=f"{total} Pokémon ({shinies} shiny)", inline=False)
     await ctx.send(embed=embed)
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
 # =========================
 # ROLE MANAGEMENT
@@ -535,8 +543,6 @@ async def admin_commands(ctx):
     embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`", inline=False)
     embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`, `!forceroles`", inline=False)
     embed.add_field(name="📺 Channel List", value="`!listfollows`", inline=False)
-    embed.add_field(name="⭐ Levels & Game", value="`!level`, `!leaderboard`, `!duel @user`, `!setxp <type> <amount>`, `!getxpconfig`, `!togglelevelup`, `!resetlevel @user`, `!resetalllevels confirm`", inline=False)
-    embed.add_field(name="⭐ Levels & Game", value="`!resetalllevels confirm`", inline=False)
     try:
         await ctx.author.send(embed=embed)
         await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
@@ -547,7 +553,6 @@ async def admin_commands(ctx):
 # =========================
 # FUN COMMANDS: MEMES & JOKES
 # =========================
-
 @bot.command(name="meme")
 async def meme_cmd(ctx):
     if not memes:
@@ -571,8 +576,6 @@ async def meme_cmd(ctx):
     user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
-
-@bot.command
 @bot.command(name="joke")
 async def joke_cmd(ctx):
     if not jokes:
@@ -595,8 +598,6 @@ async def joke_cmd(ctx):
     user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['joke_xp'])
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
-
-# =========================
 # =========================
 # LIST FOLLOWED STREAMERS & YOUTUBE CHANNELS
 # =========================
@@ -608,9 +609,6 @@ async def list_follows(ctx):
     embed.add_field(name="Twitch Streamers", value="\n".join(twitch_list), inline=False)
     embed.add_field(name="YouTube Channels", value="\n".join(youtube_list), inline=False)
     await ctx.send(embed=embed)
-    user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
 
 
@@ -643,24 +641,46 @@ async def remove_youtube(ctx, channel_id: str):
 
 
 # =========================
-# ADMIN: RESET ALL LEVELS (CONFIRMATION REQUIRED)
+# LEVELS SYSTEM
 # =========================
-@bot.command(name="resetalllevels")
-@commands.has_permissions(manage_guild=True)
-async def reset_all_levels(ctx, confirm: str = None):
-    if confirm != "confirm":
-        await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
-        return
-    global levels
-    levels = {}
+LEVELS_FILE = "levels.json"
+LEVEL_CONFIG = {
+    "message_xp": 5,
+    "catch_xp": 20,
+    "meme_xp": 10,
+    "joke_xp": 10,
+    "duel_win_xp": 30,
+    "announce_levelup": True
+}
+
+def load_levels():
+    if os.path.exists(LEVELS_FILE):
+        try:
+            with open(LEVELS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_levels(levels):
+    with open(LEVELS_FILE, "w") as f:
+        json.dump(levels, f, indent=2)
+
+levels = load_levels()
+
+def add_xp(user_id: str, amount: int):
+    user = levels.get(user_id, {"xp": 0, "level": 0})
+    user["xp"] += amount
+    import math
+    new_level = int(math.sqrt(user["xp"] / 50))
+    leveled_up = False
+    if new_level > user.get("level", 0):
+        user["level"] = new_level
+        leveled_up = True
+    levels[user_id] = user
     save_levels(levels)
-    await ctx.send("♻️ All user levels and XP have been reset.")
+    return user, leveled_up
 
-
-
-# =========================
-# LEVELS & GAME
-# =========================
 @bot.command(name="level")
 async def level_cmd(ctx, member: discord.Member = None):
     user = member or ctx.author
@@ -694,17 +714,6 @@ async def duel_cmd(ctx, opponent: discord.Member):
     await ctx.send(f"⚔️ {ctx.author.display_name} dueled {opponent.display_name}! **{winner.display_name}** wins and gains {LEVEL_CONFIG['duel_win_xp']} XP!")
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {winner.mention} leveled up to **Level {user['level']}**!")
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    user, leveled_up = add_xp(str(message.author.id), LEVEL_CONFIG["message_xp"])
-    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
-        await message.channel.send(f"🎉 {message.author.mention} leveled up to **Level {user['level']}**!")
-    await bot.process_commands(message)
-
-
 
 # =========================
 # ADMIN: XP CONFIG / TOGGLES / RESETS
@@ -757,7 +766,16 @@ async def reset_level(ctx, member: discord.Member):
     else:
         await ctx.send(f"⚠️ {member.display_name} has no recorded XP/level yet.")
 
-
+@bot.command(name="resetalllevels")
+@commands.has_permissions(manage_guild=True)
+async def reset_all_levels(ctx, confirm: str = None):
+    if confirm != "confirm":
+        await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
+        return
+    global levels
+    levels = {}
+    save_levels(levels)
+    await ctx.send("♻️ All user levels and XP have been reset.")
 # =========================
 # ERRORS + STARTUP
 # =========================

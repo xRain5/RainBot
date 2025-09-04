@@ -354,9 +354,13 @@ async def update_roles(guild: discord.Guild):
         return
     top_role, shiny_role = await ensure_roles(guild)
 
-    # Compute leaders
+    # Compute top trainer
     top_trainer_id = max(pokedex.items(), key=lambda kv: len(kv[1]))[0]
-    shiny_trainer_id = max(pokedex.items(), key=lambda kv: sum(1 for m in kv[1] if m["shiny"]))[0]
+
+    # Compute shiny trainer (only if someone has shinies)
+    shiny_counts = {uid: sum(1 for m in mons if m["shiny"]) for uid, mons in pokedex.items()}
+    shiny_trainer_id = max(shiny_counts, key=shiny_counts.get)
+    max_shinies = shiny_counts[shiny_trainer_id]
 
     for member in guild.members:
         # Top Trainer role
@@ -365,10 +369,10 @@ async def update_roles(guild: discord.Guild):
         if str(member.id) == top_trainer_id and top_role not in member.roles:
             await member.add_roles(top_role)
 
-        # Shiny Master role
-        if shiny_role in member.roles and str(member.id) != shiny_trainer_id:
+        # Shiny Master role (only if they actually have shinies)
+        if shiny_role in member.roles and (str(member.id) != shiny_trainer_id or max_shinies == 0):
             await member.remove_roles(shiny_role)
-        if str(member.id) == shiny_trainer_id and shiny_role not in member.roles:
+        if str(member.id) == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
             await member.add_roles(shiny_role)
 
 if "forceroles" not in bot.all_commands:

@@ -175,12 +175,7 @@ async def pokemon_spawner():
 
     # Cooldown check
     now = time.time()
-    last_time = catch_cooldowns.get(ctx.author.id, 0)
-    if now - last_time < CATCH_COOLDOWN:
-        remaining = int(CATCH_COOLDOWN - (now - last_time))
-        await ctx.send(f"⏳ Please wait {remaining}s before trying to catch again.")
         return
-    catch_cooldowns[ctx.author.id] = now
 
     await bot.wait_until_ready()
     while pokemon_spawning:
@@ -262,42 +257,13 @@ else:
         CATCH_COOLDOWN = seconds
         await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
     
-    async def pokemonstatus(ctx):
-        global pokemon_spawning, active_pokemon
-        if not pokemon_spawning:
-            await ctx.send("🛑 Pokémon spawning is currently **OFF**.")
-            return
-        if active_pokemon:
-            name, rarity, shiny = active_pokemon
-            shiny_text = " ✨SHINY✨" if shiny else ""
-            await ctx.send(f"✅ Spawning is **ON**. Active Pokémon: **{name}** ({rarity}){shiny_text}")
-        else:
-            await ctx.send("✅ Spawning is **ON**, but no Pokémon is currently active.")
-    
     @commands.has_permissions(manage_guild=True)
-    async def stoppokemon(ctx):
-        global pokemon_spawning, pokemon_loop_task
-        if not pokemon_spawning:
-            await ctx.send("Pokémon spawns are not running.")
-            return
-        pokemon_spawning = False
-        if pokemon_loop_task:
-            pokemon_loop_task.cancel()
-        await ctx.send("🐾 Pokémon spawning has stopped!")
-else:
-    print("⏩ Skipping duplicate registration for !stoppokemon")
-
 if "catch" not in bot.all_commands:
     @bot.command(name="catch")
     async def catch(ctx, *, name: str):
         # Cooldown check
         now = time.time()
-        last_time = catch_cooldowns.get(ctx.author.id, 0)
-        if now - last_time < CATCH_COOLDOWN:
-            remaining = int(CATCH_COOLDOWN - (now - last_time))
-            await ctx.send(f"⏳ Please wait {remaining}s before trying to catch again.")
             return
-        catch_cooldowns[ctx.author.id] = now
         global active_pokemon
         if not active_pokemon:
             await ctx.send("❌ There is no Pokémon to catch right now!")
@@ -910,13 +876,13 @@ async def on_command_error(ctx, error):
 @bot.event
 async def on_ready():
     print(f"✅ Bot ready as {bot.user}")
-    print(f"✅ {len(bot.commands)} commands registered, {skipped_commands} skipped on reload")
+    print(f"✅ {len(bot.commands)} commands registered")
 
     channel = bot.get_channel(STARTUP_LOG_CHANNEL_ID)
     if channel:
         await channel.send(
             f"✅ Bot ready as {bot.user}\n"
-            f"✅ {len(bot.commands)} commands registered, {skipped_commands} skipped on reload"
+            f"✅ {len(bot.commands)} commands registered"
         )
 
 

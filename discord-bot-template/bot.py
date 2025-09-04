@@ -19,7 +19,8 @@ NOTIFY_CHANNEL_ID = int(os.getenv("NOTIFY_CHANNEL_ID", 0))  # Discord channel fo
 POKEMON_CHANNEL_ID = int(os.getenv("POKEMON_CHANNEL_ID", 0))  # Channel for Pokémon spawns
 GUILD_ID = int(os.getenv("GUILD_ID", 0))  # Server ID for assigning roles
 
-DATA_FILE = "notify_data.json"
+# --- Data file paths ---
+NOTIFY_FILE = "notify_data.json"
 POKEMON_FILE = "pokemon_data.json"
 
 # --- Discord bot setup ---
@@ -27,18 +28,19 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- Persistence Helpers (notify system) ---
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
+# =========================
+# Persistence Helpers
+# =========================
+def load_notify_data():
+    if os.path.exists(NOTIFY_FILE):
+        with open(NOTIFY_FILE, "r") as f:
             return json.load(f)
     return {"streamers": [], "youtube_channels": {}}
 
-def save_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump({"streamers": streamers, "youtube_channels": youtube_channels}, f)
+def save_notify_data():
+    with open(NOTIFY_FILE, "w") as f:
+        json.dump({"streamers": streamers, "youtube_channels": youtube_channels}, f, indent=2)
 
-# --- Persistence Helpers (Pokémon system) ---
 def load_pokemon_data():
     if os.path.exists(POKEMON_FILE):
         with open(POKEMON_FILE, "r") as f:
@@ -47,18 +49,20 @@ def load_pokemon_data():
 
 def save_pokemon_data():
     with open(POKEMON_FILE, "w") as f:
-        json.dump({"pokedex": pokedex, "streaks": streaks}, f)
+        json.dump({"pokedex": pokedex, "streaks": streaks}, f, indent=2)
 
-# Load initial data
-data = load_data()
-streamers = data["streamers"]
-youtube_channels = data["youtube_channels"]
+# --- Load initial data ---
+notify_data = load_notify_data()
+streamers = notify_data["streamers"]
+youtube_channels = notify_data["youtube_channels"]
 
 poke_data = load_pokemon_data()
 pokedex = poke_data["pokedex"]  # user_id -> list of caught Pokémon
 streaks = poke_data["streaks"]  # user_id -> streak count
 
-# --- Twitch setup ---
+# =========================
+# Twitch setup
+# =========================
 TWITCH_ACCESS_TOKEN = None
 
 def get_twitch_token():
@@ -82,10 +86,6 @@ def twitch_headers():
         "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}"
     }
 
-# --- Store last notified states ---
-last_twitch_status = {}
-last_youtube_video = {}
-
 # =========================
 # Admin Commands
 # =========================
@@ -97,7 +97,7 @@ async def add_streamer(ctx, twitch_name: str):
         await ctx.send(f"⚠️ **{twitch_name}** is already in the Twitch list.")
         return
     streamers.append(twitch_name)
-    save_data()
+    save_notify_data()
     await ctx.send(f"✅ Added **{twitch_name}** to Twitch notifications.")
 
 @bot.command(name="addyoutube")
@@ -107,8 +107,30 @@ async def add_youtube(ctx, channel_id: str):
         await ctx.send(f"⚠️ Channel `{channel_id}` is already in YouTube list.")
         return
     youtube_channels[channel_id] = channel_id
-    save_data()
+    save_notify_data()
     await ctx.send(f"✅ Added YouTube channel `{channel_id}`.")
+
+@bot.command(name="resetpokedex")
+@commands.has_permissions(manage_guild=True)
+async def reset_pokedex(ctx, member: discord.Member):
+    user_id = str(member.id)
+    if user_id in pokedex:
+        pokedex[user_id] = []
+        save_pokemon_data()
+        await ctx.send(f"🗑️ Pokédex reset for {member.display_name}.")
+    else:
+        await ctx.send(f"⚠️ {member.display_name} has no Pokédex to reset.")
+
+@bot.command(name="resetstreak")
+@commands.has_permissions(manage_guild=True)
+async def reset_streak(ctx, member: discord.Member):
+    user_id = str(member.id)
+    if user_id in streaks:
+        streaks[user_id] = 0
+        save_pokemon_data()
+        await ctx.send(f"🛑 Streak reset for {member.display_name}.")
+    else:
+        await ctx.send(f"⚠️ {member.display_name} had no streak to reset.")
 
 # =========================
 # Fun commands
@@ -134,11 +156,26 @@ pokemon_spawning = False
 pokemon_loop_task = None
 active_pokemon = None  # currently spawned
 
+# Gen 1 Pokémon split into rarity tiers
 POKEMON_RARITIES = {
-    "common": ["Pidgey", "Rattata", "Caterpie", "Zubat"],
-    "uncommon": ["Eevee", "Vulpix", "Sandshrew"],
-    "rare": ["Snorlax", "Lapras", "Dratini"],
-    "legendary": ["Mewtwo"]
+    "common": [
+        "Pidgey", "Rattata", "Caterpie", "Weedle", "Zubat", "Spearow", "Oddish", "Poliwag",
+        "Machop", "Geodude", "Krabby", "Magnemite", "Voltorb", "Tentacool", "Sandshrew",
+        "Ekans", "Paras", "Diglett", "Meowth", "Doduo"
+    ],
+    "uncommon": [
+        "Pikachu", "Clefairy", "Vulpix", "Jigglypuff", "Growlithe", "Abra", "Bellsprout",
+        "Slowpoke", "Seel", "Gastly", "Drowzee", "Horsea", "Cubone", "Koffing", "Rhyhorn",
+        "Exeggcute", "Chansey", "Eevee", "Omanyte", "Kabuto"
+    ],
+    "rare": [
+        "Bulbasaur", "Charmander", "Squirtle", "Farfetch’d", "Onix", "Hitmonlee", "Hitmonchan",
+        "Lickitung", "Kangaskhan", "Scyther", "Pinsir", "Tauros", "Gyarados", "Lapras", "Ditto",
+        "Aerodactyl", "Snorlax", "Dratini", "Dragonair"
+    ],
+    "legendary": [
+        "Articuno", "Zapdos", "Moltres", "Mewtwo", "Mew"
+    ]
 }
 CATCH_RATES = {
     "common": 0.8,
@@ -198,7 +235,7 @@ async def catch(ctx, *, name: str):
     chance = CATCH_RATES[rarity]
     user_id = str(ctx.author.id)
     if random.random() <= chance:
-        pokedex.setdefault(user_id, []).append(pokemon)
+        pokedex.setdefault(user_id, []).append({"name": pokemon, "rarity": rarity})
         streaks[user_id] = streaks.get(user_id, 0) + 1
         save_pokemon_data()
         msg = f"✅ {ctx.author.mention} caught **{pokemon}** ({rarity})!"
@@ -211,18 +248,66 @@ async def catch(ctx, *, name: str):
         await ctx.send(f"💨 The wild {pokemon} escaped {ctx.author.mention}!")
     active_pokemon = None
 
+@bot.command(name="pokedex")
+async def pokedex_cmd(ctx, member: discord.Member = None):
+    user = member or ctx.author
+    user_id = str(user.id)
+    if user_id not in pokedex or not pokedex[user_id]:
+        await ctx.send(f"📭 {user.display_name} has not caught any Pokémon yet!")
+        return
+
+    grouped = {"common": [], "uncommon": [], "rare": [], "legendary": []}
+    for entry in pokedex[user_id]:
+        grouped[entry["rarity"]].append(entry["name"])
+
+    embed = discord.Embed(
+        title=f"📘 Pokédex for {user.display_name}",
+        color=discord.Color.green()
+    )
+    for rarity, mons in grouped.items():
+        if mons:
+            embed.add_field(
+                name=f"{rarity.capitalize()} ({len(mons)})",
+                value=", ".join(mons),
+                inline=False
+            )
+
+    streak_count = streaks.get(user_id, 0)
+    if streak_count > 0:
+        embed.set_footer(text=f"🔥 Current streak: {streak_count}")
+
+    await ctx.send(embed=embed)
+
+@bot.command(name="top")
+async def top(ctx):
+    """Show leaderboard of most Pokémon caught"""
+    if not pokedex:
+        await ctx.send("📭 No Pokémon have been caught yet!")
+        return
+
+    leaderboard = []
+    for user_id, mons in pokedex.items():
+        leaderboard.append((user_id, len(mons)))
+
+    leaderboard.sort(key=lambda x: x[1], reverse=True)
+    top_users = leaderboard[:10]
+
+    embed = discord.Embed(title="🏆 Top Pokémon Trainers", color=discord.Color.gold())
+    for i, (user_id, count) in enumerate(top_users, 1):
+        user = await bot.fetch_user(int(user_id))
+        embed.add_field(name=f"#{i} {user.display_name}", value=f"{count} Pokémon", inline=False)
+
+    await ctx.send(embed=embed)
+
 # =========================
 # Help menus
 # =========================
 @bot.command(name="commands")
 @commands.cooldown(1, 30, commands.BucketType.user)
 async def commands_list(ctx):
-    embed = discord.Embed(
-        title="📖 Available Commands",
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(title="📖 Available Commands", color=discord.Color.blue())
     embed.add_field(name="🎮 Fun", value="`!joke`, `!roll [sides]`", inline=False)
-    embed.add_field(name="🐾 Pokémon", value="`!catch <pokemon>`", inline=False)
+    embed.add_field(name="🐾 Pokémon", value="`!catch <pokemon>`, `!pokedex`, `!top`", inline=False)
     try:
         await ctx.author.send(embed=embed)
         await ctx.send("📬 I've sent you a DM with the list of commands!")
@@ -233,12 +318,13 @@ async def commands_list(ctx):
 @commands.has_permissions(manage_guild=True)
 @commands.cooldown(1, 30, commands.BucketType.user)
 async def admin_commands(ctx):
-    embed = discord.Embed(
-        title="⚙️ Admin Commands",
-        color=discord.Color.red()
-    )
+    embed = discord.Embed(title="⚙️ Admin Commands", color=discord.Color.red())
     embed.add_field(name="🛠️ Moderation", value="`!addstreamer`, `!addyoutube`", inline=False)
-    embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`", inline=False)
+    embed.add_field(
+        name="🐾 Pokémon Control",
+        value="`!startpokemon`, `!stoppokemon`, `!resetpokedex @user`, `!resetstreak @user`",
+        inline=False
+    )
     try:
         await ctx.author.send(embed=embed)
         await ctx.send("📬 I've sent you a DM with the list of admin commands!")

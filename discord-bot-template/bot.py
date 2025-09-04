@@ -75,8 +75,30 @@ last_twitch_status = {}
 last_youtube_video = {}
 
 # =========================
-# Background tasks (Twitch + YouTube checkers) here...
+# Admin Commands
 # =========================
+@bot.command(name="addstreamer")
+@commands.has_permissions(manage_guild=True)
+async def add_streamer(ctx, twitch_name: str):
+    """Add a Twitch streamer for notifications"""
+    twitch_name = twitch_name.lower()
+    if twitch_name in streamers:
+        await ctx.send(f"⚠️ **{twitch_name}** is already in the Twitch notifications list.")
+        return
+    streamers.append(twitch_name)
+    save_data()
+    await ctx.send(f"✅ Added **{twitch_name}** to Twitch notifications.")
+
+@bot.command(name="addyoutube")
+@commands.has_permissions(manage_guild=True)
+async def add_youtube(ctx, channel_id: str):
+    """Add a YouTube channel for notifications"""
+    if channel_id in youtube_channels:
+        await ctx.send(f"⚠️ Channel `{channel_id}` is already in YouTube notifications.")
+        return
+    youtube_channels[channel_id] = channel_id
+    save_data()
+    await ctx.send(f"✅ Added YouTube channel `{channel_id}` for notifications.")
 
 # =========================
 # Fun commands
@@ -116,8 +138,11 @@ async def commands_list(ctx):
     ]
     embed.add_field(name="🎮 Fun", value="\n".join(user_cmds), inline=False)
 
-    await ctx.author.send(embed=embed)
-    await ctx.send("📬 I've sent you a DM with the list of commands!")
+    try:
+        await ctx.author.send(embed=embed)
+        await ctx.send("📬 I've sent you a DM with the list of commands!")
+    except discord.Forbidden:
+        await ctx.send(embed=embed)
 
 @bot.command(name="admincommands")
 @commands.has_permissions(manage_guild=True)
@@ -137,8 +162,11 @@ async def admin_commands(ctx):
     ]
     embed.add_field(name="🛠️ Moderation", value="\n".join(admin_cmds), inline=False)
 
-    await ctx.author.send(embed=embed)
-    await ctx.send("📬 I've sent you a DM with the list of admin commands!")
+    try:
+        await ctx.author.send(embed=embed)
+        await ctx.send("📬 I've sent you a DM with the list of admin commands!")
+    except discord.Forbidden:
+        await ctx.send(embed=embed)
 
 # =========================
 # Error handler for cooldowns
@@ -155,4 +183,8 @@ async def on_command_error(ctx, error):
 # =========================
 # Run bot
 # =========================
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+
 bot.run(DISCORD_TOKEN)

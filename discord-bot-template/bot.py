@@ -218,8 +218,19 @@ else:
 
 if "stoppokemon" not in bot.all_commands:
     @bot.command(name="stoppokemon")
-    
-    # Ensure old version of the command is cleared before redefining
+    async def stoppokemon(ctx):
+        global pokemon_spawning, pokemon_loop_task
+        if not pokemon_spawning:
+            await ctx.send("Pokémon spawns are not running!")
+            return
+        pokemon_spawning = False
+        if pokemon_loop_task:
+            pokemon_loop_task.cancel()
+        await ctx.send("🛑 Pokémon spawning has been stopped.")
+else:
+    print("⏩ Skipping duplicate registration for !stoppokemon")
+
+# Ensure old version of the command is cleared before redefining
 bot.remove_command("pokemonstatus")
 
 if "pokemonstatus" not in bot.all_commands:
@@ -237,6 +248,7 @@ if "pokemonstatus" not in bot.all_commands:
             await ctx.send("✅ Spawning is **ON**, but no Pokémon is currently active.")
 else:
     print("⏩ Skipping duplicate registration for !pokemonstatus")
+
 
     
     @bot.command(name="setcatchcd")

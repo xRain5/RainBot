@@ -29,6 +29,22 @@ YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 NOTIFY_FILE = "notify_data.json"     # Twitch + YouTube lists and last seen video IDs
 POKEMON_FILE = "pokemon_data.json"   # catches + streaks
 
+MEME_FILE = "memes.json"             # memes list
+JOKE_FILE = "jokes.json"             # jokes list
+
+def load_json_file(path, default):
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except Exception:
+                pass
+    return default
+
+memes = load_json_file(MEME_FILE, [])
+jokes = load_json_file(JOKE_FILE, [])
+
+
 # =========================
 # DISCORD BOT
 # =========================
@@ -435,6 +451,11 @@ async def commands_list(ctx):
         inline=False
     )
     embed.add_field(
+        name="🤣 Fun Extras",
+        value="`!meme`, `!joke`",
+        inline=False
+    )
+    embed.add_field(
         name="🔔 Notifications",
         value="Auto Twitch & YouTube alerts in the notify channel",
         inline=False
@@ -458,6 +479,45 @@ async def admin_commands(ctx):
         await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
     except discord.Forbidden:
         await ctx.reply(embed=embed, mention_author=False)
+
+
+# =========================
+# FUN COMMANDS: MEMES & JOKES
+# =========================
+@bot.command(name="meme")
+async def meme_cmd(ctx):
+    if not memes:
+        await ctx.send("📭 No memes available.")
+        return
+    meme = random.choice(memes)
+    if isinstance(meme, dict):
+        title = meme.get("title", "")
+        url = meme.get("url", "")
+        if url:
+            embed = discord.Embed(title=title or "😂 Meme", color=discord.Color.random())
+            embed.set_image(url=url)
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(title or "😂 Meme")
+    else:
+        await ctx.send(str(meme))
+
+@bot.command(name="joke")
+async def joke_cmd(ctx):
+    if not jokes:
+        await ctx.send("📭 No jokes available.")
+        return
+    joke = random.choice(jokes)
+    if isinstance(joke, dict):
+        setup = joke.get("setup")
+        punchline = joke.get("punchline")
+        if setup and punchline:
+            await ctx.send(f"🤣 {setup}\n||{punchline}||")
+        else:
+            await ctx.send(joke.get("text", "😂 Bad joke file format!"))
+    else:
+        await ctx.send(str(joke))
+
 
 # =========================
 # ERRORS + STARTUP

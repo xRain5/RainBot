@@ -24,6 +24,10 @@ TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
+import os
+STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", "0"))
+
+
 # =========================
 # DATA FILES
 # =========================
@@ -874,16 +878,15 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    # start background tasks
-    if not twitch_notifier.is_running():
-        twitch_notifier.start()
-    if not youtube_notifier.is_running():
-        youtube_notifier.start()
-    # prepare roles
-    guild = bot.get_guild(GUILD_ID)
-    if guild:
-        await ensure_roles(guild)
-        await update_roles(guild)
+    print(f"✅ Bot ready as {bot.user}")
+    print(f"✅ {len(bot.commands)} commands registered, {skipped_commands} skipped on reload")
+
+    channel = bot.get_channel(STARTUP_LOG_CHANNEL_ID)
+    if channel:
+        await channel.send(
+            f"✅ Bot ready as {bot.user}\n"
+            f"✅ {len(bot.commands)} commands registered, {skipped_commands} skipped on reload"
+        )
+
 
 bot.run(DISCORD_TOKEN)

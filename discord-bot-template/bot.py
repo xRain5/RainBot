@@ -183,7 +183,7 @@ async def pokemon_spawner():
             await asyncio.sleep(60)
             continue
 
-        await asyncio.sleep(1800)  # 5 minutes  # 30 minutes
+        await asyncio.sleep(1800)  # 30 minutes
         rarity = random.choices(["common","uncommon","rare","legendary"], weights=[70, 20, 9, 1])[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
         shiny = (random.random() < SHINY_RATE)
@@ -354,13 +354,9 @@ async def update_roles(guild: discord.Guild):
         return
     top_role, shiny_role = await ensure_roles(guild)
 
-    # Compute top trainer
+    # Compute leaders
     top_trainer_id = max(pokedex.items(), key=lambda kv: len(kv[1]))[0]
-
-    # Compute shiny trainer (only if someone has shinies)
-    shiny_counts = {uid: sum(1 for m in mons if m["shiny"]) for uid, mons in pokedex.items()}
-    shiny_trainer_id = max(shiny_counts, key=shiny_counts.get)
-    max_shinies = shiny_counts[shiny_trainer_id]
+    shiny_trainer_id = max(pokedex.items(), key=lambda kv: sum(1 for m in kv[1] if m["shiny"]))[0]
 
     for member in guild.members:
         # Top Trainer role
@@ -369,10 +365,10 @@ async def update_roles(guild: discord.Guild):
         if str(member.id) == top_trainer_id and top_role not in member.roles:
             await member.add_roles(top_role)
 
-        # Shiny Master role (only if they actually have shinies)
-        if shiny_role in member.roles and (str(member.id) != shiny_trainer_id or max_shinies == 0):
+        # Shiny Master role
+        if shiny_role in member.roles and str(member.id) != shiny_trainer_id:
             await member.remove_roles(shiny_role)
-        if str(member.id) == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
+        if str(member.id) == shiny_trainer_id and shiny_role not in member.roles:
             await member.add_roles(shiny_role)
 
 if "forceroles" not in bot.all_commands:
@@ -843,22 +839,15 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_ready():
-    global pokemon_spawning, pokemon_loop_task
     print(f"✅ Bot ready as {bot.user}")
     print(f"✅ {len(bot.commands)} commands registered")
 
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
-    channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if channel:
         await channel.send(
-            f"✅ Bot ready as {bot.user}\n✅ {len(bot.commands)} commands registered"
+            f"✅ Bot ready as {bot.user}\n"
+            f"✅ {len(bot.commands)} commands registered"
         )
-
-    # Auto-start Pokémon spawning if not already running
-    if not pokemon_spawning:
-        pokemon_spawning = True
-        pokemon_loop_task = asyncio.create_task(pokemon_spawner())
-        print("🐾 Auto-started Pokémon spawning")
 
 
 bot.run(DISCORD_TOKEN)

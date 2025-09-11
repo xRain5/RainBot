@@ -19,6 +19,10 @@ POKEMON_CHANNEL_ID = int(os.getenv("POKEMON_CHANNEL_ID", 0))   # where Pokémon 
 GUILD_ID = int(os.getenv("GUILD_ID", 0))                       # for role management
 SHINY_RATE = float(os.getenv("SHINY_RATE", 0.01))              # default 1%
 
+TWITCH_INTERVAL = int(os.getenv("TWITCH_INTERVAL", 2))   # minutes
+YOUTUBE_INTERVAL = int(os.getenv("YOUTUBE_INTERVAL", 5)) # minutes
+
+
 # Twitch / YouTube
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
@@ -183,7 +187,7 @@ async def pokemon_spawner():
             await asyncio.sleep(60)
             continue
 
-        await asyncio.sleep(1800)  # 30 minutes
+        await asyncio.sleep(1800)  # 5 minutes  # 30 minutes
         rarity = random.choices(["common","uncommon","rare","legendary"], weights=[70, 20, 9, 1])[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
         shiny = (random.random() < SHINY_RATE)
@@ -354,9 +358,13 @@ async def update_roles(guild: discord.Guild):
         return
     top_role, shiny_role = await ensure_roles(guild)
 
-    # Compute leaders
+    # Compute top trainer
     top_trainer_id = max(pokedex.items(), key=lambda kv: len(kv[1]))[0]
-    shiny_trainer_id = max(pokedex.items(), key=lambda kv: sum(1 for m in kv[1] if m["shiny"]))[0]
+
+    # Compute shiny trainer (only if someone has shinies)
+    shiny_counts = {uid: sum(1 for m in mons if m["shiny"]) for uid, mons in pokedex.items()}
+    shiny_trainer_id = max(shiny_counts, key=shiny_counts.get)
+    max_shinies = shiny_counts[shiny_trainer_id]
 
     for member in guild.members:
         # Top Trainer role
@@ -365,10 +373,10 @@ async def update_roles(guild: discord.Guild):
         if str(member.id) == top_trainer_id and top_role not in member.roles:
             await member.add_roles(top_role)
 
-        # Shiny Master role
-        if shiny_role in member.roles and str(member.id) != shiny_trainer_id:
+        # Shiny Master role (only if they actually have shinies)
+        if shiny_role in member.roles and (str(member.id) != shiny_trainer_id or max_shinies == 0):
             await member.remove_roles(shiny_role)
-        if str(member.id) == shiny_trainer_id and shiny_role not in member.roles:
+        if str(member.id) == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
             await member.add_roles(shiny_role)
 
 if "forceroles" not in bot.all_commands:
@@ -418,7 +426,7 @@ def twitch_headers():
 
 last_twitch_status = {}  # streamer -> bool
 
-@tasks.loop(minutes=2)
+@tasks.loop(minutes=TWITCH_INTERVAL)
 async def twitch_notifier():
     if NOTIFY_CHANNEL_ID == 0 or not streamers:
         return
@@ -441,7 +449,7 @@ async def twitch_notifier():
 # =========================
 # YOUTUBE NOTIFIER
 # =========================
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=YOUTUBE_INTERVAL)
 async def youtube_notifier():
     if NOTIFY_CHANNEL_ID == 0 or not youtube_channels or not YOUTUBE_API_KEY:
         return
@@ -839,15 +847,22 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_ready():
+    global pokemon_spawning, pokemon_loop_task
     print(f"✅ Bot ready as {bot.user}")
     print(f"✅ {len(bot.commands)} commands registered")
 
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
+    channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if channel:
         await channel.send(
-            f"✅ Bot ready as {bot.user}\n"
-            f"✅ {len(bot.commands)} commands registered"
+            f"✅ Bot ready as {bot.user}\n✅ {len(bot.commands)} commands registered"
         )
+
+    # Auto-start Pokémon spawning if not already running
+    if not pokemon_spawning:
+        pokemon_spawning = True
+        pokemon_loop_task = asyncio.create_task(pokemon_spawner())
+        print("🐾 Auto-started Pokémon spawning")
 
 
 bot.run(DISCORD_TOKEN)

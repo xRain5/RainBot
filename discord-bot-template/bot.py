@@ -1,3 +1,4 @@
+```python
 import os
 import json
 import random
@@ -30,7 +31,7 @@ TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", "0"))
+STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", 0))
 
 # =========================
 # DATA FILES
@@ -45,8 +46,9 @@ def load_json_file(path, default):
         with open(path, "r", encoding="utf-8") as f:
             try:
                 return json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error loading {path}: {e}")
+                return default
     return default
 
 memes = load_json_file(MEME_FILE, [])
@@ -73,26 +75,14 @@ bot.remove_command("commands")
 # PERSISTENCE HELPERS
 # =========================
 def load_notify_data():
-    if os.path.exists(NOTIFY_FILE):
-        with open(NOTIFY_FILE, "r") as f:
-            try:
-                return json.load(f)
-            except Exception:
-                pass
-    return {"streamers": [], "youtube_channels": {}}
+    return load_json_file(NOTIFY_FILE, {"streamers": [], "youtube_channels": {}})
 
 def save_notify_data(d):
     with open(NOTIFY_FILE, "w") as f:
         json.dump(d, f, indent=2)
 
 def load_pokemon_data():
-    if os.path.exists(POKEMON_FILE):
-        with open(POKEMON_FILE, "r") as f:
-            try:
-                return json.load(f)
-            except Exception:
-                pass
-    return {"pokedex": {}, "streaks": {}}
+    return load_json_file(POKEMON_FILE, {"pokedex": {}, "streaks": {}})
 
 def save_pokemon_data(poke):
     with open(POKEMON_FILE, "w") as f:
@@ -191,9 +181,10 @@ if "startpokemon" not in bot.all_commands:
         global pokemon_spawning, pokemon_loop_task
         if pokemon_spawning:
             await ctx.send("Pokémon spawns are already running!")
-        pokemon_spawning = True
-        pokemon_loop_task = asyncio.create_task(pokemon_spawner())
-        await ctx.send("🐾 Pokémon spawning has started!")
+        else:
+            pokemon_spawning = True
+            pokemon_loop_task = asyncio.create_task(pokemon_spawner())
+            await ctx.send("🐾 Pokémon spawning has started!")
 else:
     print("⏩ Skipping duplicate registration for !startpokemon")
 
@@ -203,10 +194,11 @@ if "stoppokemon" not in bot.all_commands:
         global pokemon_spawning, pokemon_loop_task
         if not pokemon_spawning:
             await ctx.send("Pokémon spawns are not running!")
-        pokemon_spawning = False
-        if pokemon_loop_task:
-            pokemon_loop_task.cancel()
-        await ctx.send("🛑 Pokémon spawning has been stopped.")
+        else:
+            pokemon_spawning = False
+            if pokemon_loop_task:
+                pokemon_loop_task.cancel()
+            await ctx.send("🛑 Pokémon spawning has been stopped.")
 else:
     print("⏩ Skipping duplicate registration for !stoppokemon")
 
@@ -233,8 +225,9 @@ if "setcatchcd" not in bot.all_commands:
         global CATCH_COOLDOWN
         if seconds < 0:
             await ctx.send("❌ Cooldown must be 0 or greater.")
-        CATCH_COOLDOWN = seconds
-        await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
+        else:
+            CATCH_COOLDOWN = seconds
+            await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
 else:
     print("⏩ Skipping duplicate registration for !setcatchcd")
 
@@ -340,18 +333,18 @@ async def update_roles(guild: discord.Guild):
     if not guild or not pokedex:
         return
     top_role, shiny_role = await ensure_roles(guild)
-    top_trainer_id = max(pokedex.items(), key=lambda kv: len(kv[1]))[0]
+    top_trainer_id = max(pokedex.items(), key=lambda kv: len(kv[1]))[0] if pokedex else None
     shiny_counts = {uid: sum(1 for m in mons if m["shiny"]) for uid, mons in pokedex.items()}
-    shiny_trainer_id = max(shiny_counts, key=shiny_counts.get)
-    max_shinies = shiny_counts[shiny_trainer_id]
+    shiny_trainer_id = max(shiny_counts, key=shiny_counts.get) if shiny_counts else None
+    max_shinies = shiny_counts[shiny_trainer_id] if shiny_trainer_id else 0
     for member in guild.members:
         if top_role in member.roles and str(member.id) != top_trainer_id:
             await member.remove_roles(top_role)
-        if str(member.id) == top_trainer_id and top_role not in member.roles:
+        if top_trainer_id and str(member.id) == top_trainer_id and top_role not in member.roles:
             await member.add_roles(top_role)
         if shiny_role in member.roles and (str(member.id) != shiny_trainer_id or max_shinies == 0):
             await member.remove_roles(shiny_role)
-        if str(member.id) == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
+        if shiny_trainer_id and str(member.id) == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
             await member.add_roles(shiny_role)
 
 if "forceroles" not in bot.all_commands:
@@ -375,6 +368,7 @@ TWITCH_TOKEN_EXPIRES = 0
 def get_twitch_token():
     global TWITCH_ACCESS_TOKEN, TWITCH_TOKEN_EXPIRES
     if not TWITCH_CLIENT_ID or not TWITCH_SECRET:
+        print("⚠️ Missing TWITCH_CLIENT_ID or TWITCH_SECRET in .env")
         return None
     url = "https://id.twitch.tv/oauth2/token"
     params = {
@@ -384,12 +378,14 @@ def get_twitch_token():
     }
     try:
         r = requests.post(url, params=params, timeout=10)
+        r.raise_for_status()
         data = r.json()
         TWITCH_ACCESS_TOKEN = data.get("access_token")
-        TWITCH_TOKEN_EXPIRES = time.time() + data.get("expires_in", 3600)
+        TWITCH_TOKEN_EXPIRES = time.time() + data.get("expires_in", 3600) - 60  # Buffer for safety
+        print(f"✅ Twitch token refreshed, expires at {time.ctime(TWITCH_TOKEN_EXPIRES)}")
         return TWITCH_ACCESS_TOKEN
-    except Exception as e:
-        print(f"Twitch token error: {e}")
+    except requests.RequestException as e:
+        print(f"Twitch token fetch error: {e}")
         return None
 
 def twitch_headers():
@@ -397,8 +393,8 @@ def twitch_headers():
     current_time = time.time()
     if not TWITCH_ACCESS_TOKEN or current_time >= TWITCH_TOKEN_EXPIRES:
         TWITCH_ACCESS_TOKEN = get_twitch_token()
-        TWITCH_TOKEN_EXPIRES = current_time + 3600
     if not TWITCH_ACCESS_TOKEN:
+        print("⚠️ No valid Twitch access token available")
         return {}
     return {"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}"}
 
@@ -406,13 +402,17 @@ last_twitch_status = {}  # streamer -> bool
 
 @tasks.loop(minutes=TWITCH_INTERVAL)
 async def twitch_notifier():
+    if not TWITCH_CLIENT_ID or not TWITCH_SECRET:
+        print("⚠️ Twitch notifier skipped: Missing TWITCH_CLIENT_ID or TWITCH_SECRET")
+        return
     if NOTIFY_CHANNEL_ID == 0 or not streamers:
-        print("⚠️ Twitch notifier skipped: Invalid channel ID or no streamers")
+        print(f"⚠️ Twitch notifier skipped: Invalid channel ID ({NOTIFY_CHANNEL_ID}) or no streamers ({len(streamers)})")
         return
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if not channel:
-        print("⚠️ Notify channel not found")
+        print(f"⚠️ Notify channel not found: ID {NOTIFY_CHANNEL_ID}")
         return
+    print(f"Checking Twitch for {len(streamers)} streamers: {', '.join(streamers)}")
     for username in list(streamers):
         try:
             url = "https://api.twitch.tv/helix/streams"
@@ -423,24 +423,32 @@ async def twitch_notifier():
             was_live = last_twitch_status.get(username, False)
             if is_live and not was_live:
                 await channel.send(f"🎥 **{username} is LIVE on Twitch!** https://twitch.tv/{username}")
+                print(f"✅ Sent Twitch live notification for {username}")
+            elif not is_live and was_live:
+                print(f"ℹ️ {username} went offline")
             last_twitch_status[username] = is_live
-        except Exception as e:
+        except requests.RequestException as e:
             print(f"Twitch check error for {username}: {e}")
-            if channel:
-                await channel.send(f"⚠️ Error checking Twitch status for {username}: {e}")
+            await channel.send(f"⚠️ Error checking Twitch status for {username}: {e}")
+        except Exception as e:
+            print(f"Unexpected error in twitch_notifier for {username}: {e}")
 
 # =========================
 # YOUTUBE NOTIFIER
 # =========================
 @tasks.loop(minutes=YOUTUBE_INTERVAL)
 async def youtube_notifier():
-    if NOTIFY_CHANNEL_ID == 0 or not youtube_channels or not YOUTUBE_API_KEY:
-        print("⚠️ YouTube notifier skipped: Invalid channel ID, no channels, or no API key")
+    if not YOUTUBE_API_KEY:
+        print("⚠️ YouTube notifier skipped: Missing YOUTUBE_API_KEY")
+        return
+    if NOTIFY_CHANNEL_ID == 0 or not youtube_channels:
+        print(f"⚠️ YouTube notifier skipped: Invalid channel ID ({NOTIFY_CHANNEL_ID}) or no channels ({len(youtube_channels)})")
         return
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if not channel:
-        print("⚠️ Notify channel not found")
+        print(f"⚠️ Notify channel not found: ID {NOTIFY_CHANNEL_ID}")
         return
+    print(f"Checking YouTube for {len(youtube_channels)} channels: {', '.join(youtube_channels.keys())}")
     updated = False
     for ch_id, last_vid in list(youtube_channels.items()):
         try:
@@ -458,23 +466,28 @@ async def youtube_notifier():
             data = r.json()
             items = data.get("items", [])
             if not items:
+                print(f"No recent videos found for YouTube channel {ch_id}")
                 continue
             vid = items[0]["id"]["videoId"]
             title = items[0]["snippet"]["title"]
             if not last_vid:
                 youtube_channels[ch_id] = vid
                 updated = True
+                print(f"Initialized last video ID for YouTube channel {ch_id}: {vid}")
             elif vid != last_vid:
                 youtube_channels[ch_id] = vid
                 updated = True
                 await channel.send(f"▶️ New YouTube upload: **{title}**\nhttps://youtu.be/{vid}")
-        except Exception as e:
+                print(f"✅ Sent YouTube notification for channel {ch_id}, video {vid}")
+        except requests.RequestException as e:
             print(f"YouTube check error for {ch_id}: {e}")
-            if channel:
-                await channel.send(f"⚠️ Error checking YouTube channel {ch_id}: {e}")
+            await channel.send(f"⚠️ Error checking YouTube channel {ch_id}: {e}")
+        except Exception as e:
+            print(f"Unexpected error in youtube_notifier for {ch_id}: {e}")
     if updated:
         notify_data["youtube_channels"] = youtube_channels
         save_notify_data(notify_data)
+        print("✅ Updated YouTube channels in notify_data.json")
 
 # =========================
 # ADMIN: ADD STREAMERS / YT
@@ -490,6 +503,7 @@ if "addstreamer" not in bot.all_commands:
         notify_data["streamers"] = streamers
         save_notify_data(notify_data)
         await ctx.send(f"✅ Added **{name}** to Twitch notifications.")
+        print(f"✅ Added Twitch streamer {name}")
 else:
     print("⏩ Skipping duplicate registration for !addstreamer")
 
@@ -503,6 +517,7 @@ if "addyoutube" not in bot.all_commands:
         notify_data["youtube_channels"] = youtube_channels
         save_notify_data(notify_data)
         await ctx.send(f"✅ Added YouTube channel `{channel_id}`. I’ll notify on the next upload.")
+        print(f"✅ Added YouTube channel {channel_id}")
 else:
     print("⏩ Skipping duplicate registration for !addyoutube")
 
@@ -515,8 +530,8 @@ if "commands" not in bot.all_commands:
     async def commands_list(ctx):
         embed = discord.Embed(title="📖 Commands", color=discord.Color.blue())
         embed.add_field(
-            name="🎮 Fun / Pokémon",
-            value="`!startpokemon`*, `!stoppokemon`*, `!catch <name>`, `!pokedex [@user]`, `!top`",
+            name="🎮 Pokémon Game",
+            value="`!pokemonstatus`, `!catch <name>`, `!pokedex [@user]`, `!top`",
             inline=False
         )
         embed.add_field(
@@ -525,16 +540,21 @@ if "commands" not in bot.all_commands:
             inline=False
         )
         embed.add_field(
-            name="🔔 Notifications",
-            value="Auto Twitch & YouTube alerts in the notify channel",
+            name="⭐ Levels System",
+            value="`!level [@user]`, `!leaderboard`, `!duel @user`",
             inline=False
         )
         embed.add_field(
-            name="📺 Channel List",
-            value="`!listfollows`",
+            name="🔔 Notifications",
+            value="Auto Twitch & YouTube alerts in the notify channel. Use `!listfollows` to view followed channels.",
             inline=False
         )
-        embed.set_footer(text="* admin only")
+        embed.add_field(
+            name="⚙️ Admin Commands",
+            value="Use `!admincommands` for admin-only commands like starting/stopping Pokémon spawns, managing notifications, and level configs.",
+            inline=False
+        )
+        embed.set_footer(text="Type !admincommands for full admin command list if you have access.")
         try:
             await ctx.author.send(embed=embed)
             await ctx.reply("📬 Sent you a DM with the commands!", mention_author=False)
@@ -548,9 +568,21 @@ if "admincommands" not in bot.all_commands:
     @commands.cooldown(1, 20, commands.BucketType.user)
     async def admin_commands(ctx):
         embed = discord.Embed(title="⚙️ Admin Commands", color=discord.Color.red())
-        embed.add_field(name="🔔 Notifiers", value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`", inline=False)
-        embed.add_field(name="🐾 Pokémon Control", value="`!startpokemon`, `!stoppokemon`, `!forceroles`", inline=False)
-        embed.add_field(name="📺 Channel List", value="`!listfollows`", inline=False)
+        embed.add_field(
+            name="🐾 Pokémon Control",
+            value="`!startpokemon`, `!stoppokemon`, `!setcatchcd <seconds>`, `!forceroles`",
+            inline=False
+        )
+        embed.add_field(
+            name="🔔 Notifications Management",
+            value="`!addstreamer <twitch_name>`, `!addyoutube <channel_id>`, `!removestreamer <twitch_name>`, `!removeyoutube <channel_id>`, `!listfollows`",
+            inline=False
+        )
+        embed.add_field(
+            name="⭐ Levels Management",
+            value="`!setxp <type> <amount>`, `!getxpconfig`, `!togglelevelup`, `!resetlevel @user`, `!resetalllevels confirm`",
+            inline=False
+        )
         try:
             await ctx.author.send(embed=embed)
             await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
@@ -644,6 +676,7 @@ if "removestreamer" not in bot.all_commands:
         notify_data["streamers"] = streamers
         save_notify_data(notify_data)
         await ctx.send(f"✅ Removed **{name}** from Twitch notifications.")
+        print(f"✅ Removed Twitch streamer {name}")
 else:
     print("⏩ Skipping duplicate registration for !removestreamer")
 
@@ -657,6 +690,7 @@ if "removeyoutube" not in bot.all_commands:
         notify_data["youtube_channels"] = youtube_channels
         save_notify_data(notify_data)
         await ctx.send(f"✅ Removed YouTube channel `{channel_id}`.")
+        print(f"✅ Removed YouTube channel {channel_id}")
 else:
     print("⏩ Skipping duplicate registration for !removeyoutube")
 
@@ -674,13 +708,7 @@ LEVEL_CONFIG = {
 }
 
 def load_levels():
-    if os.path.exists(LEVELS_FILE):
-        try:
-            with open(LEVELS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    return load_json_file(LEVELS_FILE, {})
 
 def save_levels(levels):
     with open(LEVELS_FILE, "w") as f:
@@ -826,6 +854,7 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.CommandNotFound):
         await ctx.reply("❌ That command doesn’t exist. Try `!commands`.", delete_after=5, mention_author=False)
     else:
+        print(f"Command error: {error}")
         raise error
 
 @bot.event
@@ -836,6 +865,8 @@ async def on_ready():
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if channel:
         await channel.send(f"✅ Bot ready as {bot.user}\n✅ {len(bot.commands)} commands registered")
+    else:
+        print(f"⚠️ Startup: Notify channel ID {NOTIFY_CHANNEL_ID} not found")
     if not pokemon_spawning:
         pokemon_spawning = True
         pokemon_loop_task = asyncio.create_task(pokemon_spawner())
@@ -848,3 +879,4 @@ async def on_ready():
         print("📡 Auto-started YouTube notifier")
 
 bot.run(DISCORD_TOKEN)
+```

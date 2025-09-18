@@ -16,6 +16,7 @@ if not load_dotenv(env_file):
 else:
     print(f"✅ Loaded .env file from {os.path.abspath(env_file)}")
 
+print(f"🚀 Running bot from: {os.path.abspath(__file__)}")
 print("Bot starting up...")
 
 # =========================
@@ -48,6 +49,7 @@ STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", 0))
 # DATA FILES
 # =========================
 NOTIFY_FILE = "notify_data.json"     # Twitch + YouTube lists and last seen video IDs
+PERMANENT_CHANNELS_FILE = "permanent_channels.json"  # Permanent streamers and YouTube channels
 POKEMON_FILE = "pokemon_data.json"   # catches + streaks
 MEME_FILE = "memes.json"             # memes list
 JOKE_FILE = "jokes.json"             # jokes list
@@ -56,11 +58,22 @@ def load_json_file(path, default):
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             try:
-                return json.load(f)
+                data = json.load(f)
+                print(f"✅ Loaded {path}")
+                return data
             except Exception as e:
-                print(f"Error loading {path}: {e}")
+                print(f"⚠️ Error loading {path}: {e}")
                 return default
+    print(f"⚠️ File {path} not found, using default: {default}")
     return default
+
+def save_json_file(path, data):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        print(f"✅ Saved {path}")
+    except Exception as e:
+        print(f"⚠️ Error saving {path}: {e}")
 
 memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
@@ -86,18 +99,31 @@ bot.remove_command("commands")
 # PERSISTENCE HELPERS
 # =========================
 def load_notify_data():
-    return load_json_file(NOTIFY_FILE, {"streamers": [], "youtube_channels": {}})
+    notify_data = load_json_file(NOTIFY_FILE, {"streamers": [], "youtube_channels": {}})
+    # Load permanent channels
+    permanent_data = load_json_file(PERMANENT_CHANNELS_FILE, {"streamers": [], "youtube_channels": {}})
+    # Merge permanent channels into notify_data, preserving last video IDs
+    notify_data["streamers"] = list(set(notify_data.get("streamers", []) + permanent_data.get("streamers", [])))
+    for ch_id in permanent_data.get("youtube_channels", {}):
+        if ch_id not in notify_data.get("youtube_channels", {}):
+            notify_data["youtube_channels"][ch_id] = permanent_data["youtube_channels"][ch_id]
+    save_json_file(NOTIFY_FILE, notify_data)
+    return notify_data
 
 def save_notify_data(d):
-    with open(NOTIFY_FILE, "w") as f:
-        json.dump(d, f, indent=2)
+    save_json_file(NOTIFY_FILE, d)
+    # Update permanent_channels.json with current streamers and channels (excluding last video IDs)
+    permanent_data = {
+        "streamers": d.get("streamers", []),
+        "youtube_channels": {ch_id: "" for ch_id in d.get("youtube_channels", {})}
+    }
+    save_json_file(PERMANENT_CHANNELS_FILE, permanent_data)
 
 def load_pokemon_data():
     return load_json_file(POKEMON_FILE, {"pokedex": {}, "streaks": {}})
 
 def save_pokemon_data(poke):
-    with open(POKEMON_FILE, "w") as f:
-        json.dump(poke, f, indent=2)
+    save_json_file(POKEMON_FILE, poke)
 
 notify_data = load_notify_data()
 streamers = notify_data.get("streamers", [])
@@ -498,7 +524,6 @@ async def youtube_notifier():
     if updated:
         notify_data["youtube_channels"] = youtube_channels
         save_notify_data(notify_data)
-        print("✅ Updated YouTube channels in notify_data.json")
 
 # =========================
 # ADMIN: ADD STREAMERS / YT
@@ -722,8 +747,7 @@ def load_levels():
     return load_json_file(LEVELS_FILE, {})
 
 def save_levels(levels):
-    with open(LEVELS_FILE, "w") as f:
-        json.dump(levels, f, indent=2)
+    save_json_file(LEVELS_FILE, levels)
 
 levels = load_levels()
 

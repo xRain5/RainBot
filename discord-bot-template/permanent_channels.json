@@ -1,4 +1,4 @@
 {
-  "streamers": [],
-  "youtube_channels": {}
+  "streamers": ["trainer__rain"],
+  "youtube_channels": {"trainer__rain"}
 }

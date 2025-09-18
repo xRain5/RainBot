@@ -9,7 +9,12 @@ from discord.ext.commands import CommandOnCooldown
 import time
 from dotenv import load_dotenv
 
-load_dotenv()  # Load environment variables from .env file
+# Debug .env loading
+env_file = ".env"
+if not load_dotenv(env_file):
+    print(f"⚠️ Failed to load .env file at {os.path.abspath(env_file)}. Ensure it exists and is readable.")
+else:
+    print(f"✅ Loaded .env file from {os.path.abspath(env_file)}")
 
 print("Bot starting up...")
 
@@ -29,6 +34,13 @@ YOUTUBE_INTERVAL = int(os.getenv("YOUTUBE_INTERVAL", 5)) # minutes
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+
+# Debug environment variables
+print(f"DEBUG: DISCORD_TOKEN={'Set' if DISCORD_TOKEN else 'Not set'}")
+print(f"DEBUG: NOTIFY_CHANNEL_ID={NOTIFY_CHANNEL_ID}")
+print(f"DEBUG: TWITCH_CLIENT_ID={'Set' if TWITCH_CLIENT_ID else 'Not set'}")
+print(f"DEBUG: TWITCH_SECRET={'Set' if TWITCH_SECRET else 'Not set'}")
+print(f"DEBUG: YOUTUBE_API_KEY={'Set' if YOUTUBE_API_KEY else 'Not set'}")
 
 STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", 0))
 

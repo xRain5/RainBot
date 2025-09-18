@@ -7,6 +7,9 @@ import discord
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandOnCooldown
 import time
+from dotenv import load_dotenv
+
+load_dotenv()  # Load environment variables from .env file
 
 print("Bot starting up...")
 
@@ -22,22 +25,18 @@ SHINY_RATE = float(os.getenv("SHINY_RATE", 0.01))              # default 1%
 TWITCH_INTERVAL = int(os.getenv("TWITCH_INTERVAL", 2))   # minutes
 YOUTUBE_INTERVAL = int(os.getenv("YOUTUBE_INTERVAL", 5)) # minutes
 
-
 # Twitch / YouTube
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-import os
 STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", "0"))
-
 
 # =========================
 # DATA FILES
 # =========================
 NOTIFY_FILE = "notify_data.json"     # Twitch + YouTube lists and last seen video IDs
 POKEMON_FILE = "pokemon_data.json"   # catches + streaks
-
 MEME_FILE = "memes.json"             # memes list
 JOKE_FILE = "jokes.json"             # jokes list
 
@@ -53,7 +52,6 @@ def load_json_file(path, default):
 memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
 
-
 # =========================
 # DISCORD BOT
 # =========================
@@ -68,10 +66,6 @@ for cmd in list(bot.commands):
     bot.remove_command(cmd.name)
 print("🔄 Commands reset on startup")
 
-# Safety: clear any commands if reloaded
-for cmd in list(bot.commands):
-    bot.remove_command(cmd.name)
-
 bot.remove_command("pokemonstatus")
 bot.remove_command("commands")
 
@@ -85,7 +79,6 @@ def load_notify_data():
                 return json.load(f)
             except Exception:
                 pass
-    # default structure: youtube_channels is dict channel_id -> last_video_id (or "")
     return {"streamers": [], "youtube_channels": {}}
 
 def save_notify_data(d):
@@ -136,7 +129,7 @@ ALL_GEN1 = [
     "Omanyte","Omastar","Kabuto","Kabutops","Aerodactyl","Snorlax","Articuno","Zapdos","Moltres","Dratini","Dragonair","Dragonite","Mewtwo","Mew"
 ]
 
-# Rarity sets (hand-picked). Everything not in UNCOMMON/RARE/LEGENDARY becomes COMMON automatically.
+# Rarity sets
 LEGENDARY = {"Articuno","Zapdos","Moltres","Mewtwo","Mew"}
 RARE = {
     "Bulbasaur","Ivysaur","Venusaur","Charmander","Charmeleon","Charizard",
@@ -162,7 +155,6 @@ POKEMON_RARITIES = {
 }
 CATCH_RATES = {"common": 0.8, "uncommon": 0.5, "rare": 0.3, "legendary": 0.05}
 
-
 # =========================
 # POKÉMON GAME
 # =========================
@@ -173,12 +165,8 @@ active_pokemon = None  # tuple (name, rarity, shiny)
 catch_cooldowns = {}
 CATCH_COOLDOWN = 10  # seconds
 
-
 async def pokemon_spawner():
     global active_pokemon
-
-    # Cooldown check
-
     await bot.wait_until_ready()
     while pokemon_spawning:
         channel = bot.get_channel(POKEMON_CHANNEL_ID)
@@ -186,8 +174,7 @@ async def pokemon_spawner():
             print("⚠️ Pokémon channel not found. Retrying in 60s...")
             await asyncio.sleep(60)
             continue
-
-        await asyncio.sleep(1800)  # 5 minutes  # 30 minutes
+        await asyncio.sleep(1800)  # 30 minutes
         rarity = random.choices(["common","uncommon","rare","legendary"], weights=[70, 20, 9, 1])[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
         shiny = (random.random() < SHINY_RATE)
@@ -197,7 +184,6 @@ async def pokemon_spawner():
             f"A wild **{pokemon}** ({rarity}){shiny_text} appeared! "
             f"Type `!catch {pokemon}` to try and catch it!"
         )
-
 
 if "startpokemon" not in bot.all_commands:
     @bot.command(name="startpokemon")
@@ -224,7 +210,6 @@ if "stoppokemon" not in bot.all_commands:
 else:
     print("⏩ Skipping duplicate registration for !stoppokemon")
 
-# Ensure old version of the command is cleared before redefining
 bot.remove_command("pokemonstatus")
 
 if "pokemonstatus" not in bot.all_commands:
@@ -233,7 +218,7 @@ if "pokemonstatus" not in bot.all_commands:
         global pokemon_spawning, active_pokemon
         if not pokemon_spawning:
             await ctx.send("🛑 Pokémon spawning is currently **OFF**.")
-        if active_pokemon:
+        elif active_pokemon:
             name, rarity, shiny = active_pokemon
             shiny_text = " ✨SHINY✨" if shiny else ""
             await ctx.send(f"✅ Spawning is **ON**. Active Pokémon: **{name}** ({rarity}){shiny_text}")
@@ -242,9 +227,7 @@ if "pokemonstatus" not in bot.all_commands:
 else:
     print("⏩ Skipping duplicate registration for !pokemonstatus")
 
-
-
-    
+if "setcatchcd" not in bot.all_commands:
     @bot.command(name="setcatchcd")
     async def setcatchcd(ctx, seconds: int):
         global CATCH_COOLDOWN
@@ -252,22 +235,23 @@ else:
             await ctx.send("❌ Cooldown must be 0 or greater.")
         CATCH_COOLDOWN = seconds
         await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
-    
+else:
+    print("⏩ Skipping duplicate registration for !setcatchcd")
+
 if "catch" not in bot.all_commands:
     @bot.command(name="catch")
     async def catch(ctx, *, name: str):
-        # Cooldown check
         global active_pokemon
         if not active_pokemon:
             await ctx.send("❌ There is no Pokémon to catch right now!")
+            return
         pokemon, rarity, shiny = active_pokemon
         if name.strip().lower() != pokemon.lower():
             await ctx.send("❌ That’s not the Pokémon! The wild Pokémon escaped…")
             active_pokemon = None
-    
+            return
         chance = CATCH_RATES[rarity]
         user_id = str(ctx.author.id)
-    
         if random.random() <= chance:
             entry = {"name": pokemon, "rarity": rarity, "shiny": shiny}
             pokedex.setdefault(user_id, []).append(entry)
@@ -297,20 +281,18 @@ if "pokedex" not in bot.all_commands:
         user_id = str(user.id)
         if user_id not in pokedex or not pokedex[user_id]:
             await ctx.send(f"📭 {user.display_name} has not caught any Pokémon yet!")
-    
+            return
         grouped = {"common": [], "uncommon": [], "rare": [], "legendary": [], "shiny": []}
         for entry in pokedex[user_id]:
             if entry["shiny"]:
                 grouped["shiny"].append(entry["name"])
             else:
                 grouped[entry["rarity"]].append(entry["name"])
-    
         embed = discord.Embed(title=f"📘 Pokédex for {user.display_name}", color=discord.Color.green())
         for rarity in ["shiny","legendary","rare","uncommon","common"]:
             mons = grouped[rarity]
             if mons:
                 embed.add_field(name=f"{rarity.capitalize()} ({len(mons)})", value=", ".join(sorted(mons)), inline=False)
-    
         streak_count = streaks.get(user_id, 0)
         if streak_count > 0:
             embed.set_footer(text=f"🔥 Current streak: {streak_count}")
@@ -323,6 +305,7 @@ if "top" not in bot.all_commands:
     async def top(ctx):
         if not pokedex:
             await ctx.send("📭 No Pokémon have been caught yet!")
+            return
         leaderboard = []
         for user_id, mons in pokedex.items():
             total = len(mons)
@@ -357,23 +340,15 @@ async def update_roles(guild: discord.Guild):
     if not guild or not pokedex:
         return
     top_role, shiny_role = await ensure_roles(guild)
-
-    # Compute top trainer
     top_trainer_id = max(pokedex.items(), key=lambda kv: len(kv[1]))[0]
-
-    # Compute shiny trainer (only if someone has shinies)
     shiny_counts = {uid: sum(1 for m in mons if m["shiny"]) for uid, mons in pokedex.items()}
     shiny_trainer_id = max(shiny_counts, key=shiny_counts.get)
     max_shinies = shiny_counts[shiny_trainer_id]
-
     for member in guild.members:
-        # Top Trainer role
         if top_role in member.roles and str(member.id) != top_trainer_id:
             await member.remove_roles(top_role)
         if str(member.id) == top_trainer_id and top_role not in member.roles:
             await member.add_roles(top_role)
-
-        # Shiny Master role (only if they actually have shinies)
         if shiny_role in member.roles and (str(member.id) != shiny_trainer_id or max_shinies == 0):
             await member.remove_roles(shiny_role)
         if str(member.id) == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
@@ -385,6 +360,7 @@ if "forceroles" not in bot.all_commands:
         guild = ctx.guild or bot.get_guild(GUILD_ID)
         if not guild:
             await ctx.send("⚠️ Guild not found for role updates.")
+            return
         await update_roles(guild)
         await ctx.send("🔄 Roles refreshed.")
 else:
@@ -410,16 +386,18 @@ def get_twitch_token():
         r = requests.post(url, params=params, timeout=10)
         data = r.json()
         TWITCH_ACCESS_TOKEN = data.get("access_token")
-        # no precise expiry from API here; just refresh every hour in loop
-        TWITCH_TOKEN_EXPIRES = 3600
+        TWITCH_TOKEN_EXPIRES = time.time() + data.get("expires_in", 3600)
         return TWITCH_ACCESS_TOKEN
     except Exception as e:
-        print("Twitch token error:", e)
+        print(f"Twitch token error: {e}")
         return None
 
 def twitch_headers():
-    if not TWITCH_ACCESS_TOKEN:
-        get_twitch_token()
+    global TWITCH_ACCESS_TOKEN, TWITCH_TOKEN_EXPIRES
+    current_time = time.time()
+    if not TWITCH_ACCESS_TOKEN or current_time >= TWITCH_TOKEN_EXPIRES:
+        TWITCH_ACCESS_TOKEN = get_twitch_token()
+        TWITCH_TOKEN_EXPIRES = current_time + 3600
     if not TWITCH_ACCESS_TOKEN:
         return {}
     return {"Client-ID": TWITCH_CLIENT_ID, "Authorization": f"Bearer {TWITCH_ACCESS_TOKEN}"}
@@ -429,14 +407,17 @@ last_twitch_status = {}  # streamer -> bool
 @tasks.loop(minutes=TWITCH_INTERVAL)
 async def twitch_notifier():
     if NOTIFY_CHANNEL_ID == 0 or not streamers:
+        print("⚠️ Twitch notifier skipped: Invalid channel ID or no streamers")
         return
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if not channel:
+        print("⚠️ Notify channel not found")
         return
     for username in list(streamers):
         try:
             url = "https://api.twitch.tv/helix/streams"
             resp = requests.get(url, headers=twitch_headers(), params={"user_login": username}, timeout=10)
+            resp.raise_for_status()
             data = resp.json()
             is_live = bool(data.get("data"))
             was_live = last_twitch_status.get(username, False)
@@ -444,7 +425,9 @@ async def twitch_notifier():
                 await channel.send(f"🎥 **{username} is LIVE on Twitch!** https://twitch.tv/{username}")
             last_twitch_status[username] = is_live
         except Exception as e:
-            print(f"Twitch check error for {username}:", e)
+            print(f"Twitch check error for {username}: {e}")
+            if channel:
+                await channel.send(f"⚠️ Error checking Twitch status for {username}: {e}")
 
 # =========================
 # YOUTUBE NOTIFIER
@@ -452,12 +435,12 @@ async def twitch_notifier():
 @tasks.loop(minutes=YOUTUBE_INTERVAL)
 async def youtube_notifier():
     if NOTIFY_CHANNEL_ID == 0 or not youtube_channels or not YOUTUBE_API_KEY:
+        print("⚠️ YouTube notifier skipped: Invalid channel ID, no channels, or no API key")
         return
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if not channel:
+        print("⚠️ Notify channel not found")
         return
-        return
-
     updated = False
     for ch_id, last_vid in list(youtube_channels.items()):
         try:
@@ -471,15 +454,14 @@ async def youtube_notifier():
                 "key": YOUTUBE_API_KEY
             }
             r = requests.get(url, params=params, timeout=10)
+            r.raise_for_status()
             data = r.json()
             items = data.get("items", [])
             if not items:
                 continue
             vid = items[0]["id"]["videoId"]
             title = items[0]["snippet"]["title"]
-
             if not last_vid:
-                # seed without notifying the first time we see it
                 youtube_channels[ch_id] = vid
                 updated = True
             elif vid != last_vid:
@@ -487,8 +469,9 @@ async def youtube_notifier():
                 updated = True
                 await channel.send(f"▶️ New YouTube upload: **{title}**\nhttps://youtu.be/{vid}")
         except Exception as e:
-            print(f"YouTube check error for {ch_id}:", e)
-
+            print(f"YouTube check error for {ch_id}: {e}")
+            if channel:
+                await channel.send(f"⚠️ Error checking YouTube channel {ch_id}: {e}")
     if updated:
         notify_data["youtube_channels"] = youtube_channels
         save_notify_data(notify_data)
@@ -502,6 +485,7 @@ if "addstreamer" not in bot.all_commands:
         name = twitch_name.lower()
         if name in streamers:
             await ctx.send(f"⚠️ **{name}** is already in the Twitch list.")
+            return
         streamers.append(name)
         notify_data["streamers"] = streamers
         save_notify_data(notify_data)
@@ -514,7 +498,8 @@ if "addyoutube" not in bot.all_commands:
     async def add_youtube(ctx, channel_id: str):
         if channel_id in youtube_channels:
             await ctx.send(f"⚠️ Channel `{channel_id}` already tracked.")
-        youtube_channels[channel_id] = ""  # no last video yet
+            return
+        youtube_channels[channel_id] = ""
         notify_data["youtube_channels"] = youtube_channels
         save_notify_data(notify_data)
         await ctx.send(f"✅ Added YouTube channel `{channel_id}`. I’ll notify on the next upload.")
@@ -549,11 +534,6 @@ if "commands" not in bot.all_commands:
             value="`!listfollows`",
             inline=False
         )
-        embed.add_field(
-            name="🔔 Notifications",
-            value="Auto Twitch & YouTube alerts in the notify channel",
-            inline=False
-        )
         embed.set_footer(text="* admin only")
         try:
             await ctx.author.send(embed=embed)
@@ -576,7 +556,6 @@ if "admincommands" not in bot.all_commands:
             await ctx.reply("📬 Sent you a DM with the admin commands!", mention_author=False)
         except discord.Forbidden:
             await ctx.reply(embed=embed, mention_author=False)
-    
 else:
     print("⏩ Skipping duplicate registration for !admincommands")
 
@@ -588,6 +567,7 @@ if "meme" not in bot.all_commands:
     async def meme_cmd(ctx):
         if not memes:
             await ctx.send("📭 No memes available.")
+            return
         meme = random.choice(memes)
         sent = False
         if isinstance(meme, dict):
@@ -614,6 +594,7 @@ if "joke" not in bot.all_commands:
     async def joke_cmd(ctx):
         if not jokes:
             await ctx.send("📭 No jokes available.")
+            return
         joke = random.choice(jokes)
         sent = False
         if isinstance(joke, dict):
@@ -646,8 +627,6 @@ if "listfollows" not in bot.all_commands:
         embed.add_field(name="Twitch Streamers", value="\n".join(twitch_list), inline=False)
         embed.add_field(name="YouTube Channels", value="\n".join(youtube_list), inline=False)
         await ctx.send(embed=embed)
-    
-    
 else:
     print("⏩ Skipping duplicate registration for !listfollows")
 
@@ -660,6 +639,7 @@ if "removestreamer" not in bot.all_commands:
         name = twitch_name.lower()
         if name not in streamers:
             await ctx.send(f"⚠️ **{name}** is not in the Twitch list.")
+            return
         streamers.remove(name)
         notify_data["streamers"] = streamers
         save_notify_data(notify_data)
@@ -672,12 +652,11 @@ if "removeyoutube" not in bot.all_commands:
     async def remove_youtube(ctx, channel_id: str):
         if channel_id not in youtube_channels:
             await ctx.send(f"⚠️ Channel `{channel_id}` is not tracked.")
+            return
         youtube_channels.pop(channel_id, None)
         notify_data["youtube_channels"] = youtube_channels
         save_notify_data(notify_data)
         await ctx.send(f"✅ Removed YouTube channel `{channel_id}`.")
-    
-    
 else:
     print("⏩ Skipping duplicate registration for !removeyoutube")
 
@@ -736,6 +715,7 @@ if "leaderboard" not in bot.all_commands:
     async def leaderboard_cmd(ctx):
         if not levels:
             await ctx.send("📭 No levels recorded yet!")
+            return
         sorted_lvls = sorted(levels.items(), key=lambda kv: kv[1].get("xp", 0), reverse=True)
         embed = discord.Embed(title="🏆 Level Leaderboard", color=discord.Color.gold())
         for i, (uid, data) in enumerate(sorted_lvls[:10], 1):
@@ -754,6 +734,7 @@ if "duel" not in bot.all_commands:
     async def duel_cmd(ctx, opponent: discord.Member):
         if opponent.id == ctx.author.id:
             await ctx.send("❌ You cannot duel yourself!")
+            return
         import random
         winner = random.choice([ctx.author, opponent])
         user, leveled_up = add_xp(str(winner.id), LEVEL_CONFIG["duel_win_xp"])
@@ -778,6 +759,7 @@ if "setxp" not in bot.all_commands:
         }
         if xp_type not in key_map:
             await ctx.send("❌ Invalid type. Use one of: message, catch, meme, joke, duel_win")
+            return
         LEVEL_CONFIG[key_map[xp_type]] = amount
         data = load_levels()
         data["_config"] = LEVEL_CONFIG
@@ -826,6 +808,7 @@ if "resetalllevels" not in bot.all_commands:
     async def reset_all_levels(ctx, confirm: str = None):
         if confirm != "confirm":
             await ctx.send("⚠️ This will reset ALL levels! Type `!resetalllevels confirm` to proceed.")
+            return
         global levels
         levels = {}
         save_levels(levels)
@@ -850,19 +833,18 @@ async def on_ready():
     global pokemon_spawning, pokemon_loop_task
     print(f"✅ Bot ready as {bot.user}")
     print(f"✅ {len(bot.commands)} commands registered")
-
-    channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     channel = bot.get_channel(NOTIFY_CHANNEL_ID)
     if channel:
-        await channel.send(
-            f"✅ Bot ready as {bot.user}\n✅ {len(bot.commands)} commands registered"
-        )
-
-    # Auto-start Pokémon spawning if not already running
+        await channel.send(f"✅ Bot ready as {bot.user}\n✅ {len(bot.commands)} commands registered")
     if not pokemon_spawning:
         pokemon_spawning = True
         pokemon_loop_task = asyncio.create_task(pokemon_spawner())
         print("🐾 Auto-started Pokémon spawning")
-
+    if not twitch_notifier.is_running():
+        twitch_notifier.start()
+        print("📡 Auto-started Twitch notifier")
+    if not youtube_notifier.is_running():
+        youtube_notifier.start()
+        print("📡 Auto-started YouTube notifier")
 
 bot.run(DISCORD_TOKEN)

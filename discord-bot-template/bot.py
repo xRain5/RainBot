@@ -1,4 +1,3 @@
-```python
 import os
 import json
 import random
@@ -879,4 +878,3 @@ async def on_ready():
         print("📡 Auto-started YouTube notifier")
 
 bot.run(DISCORD_TOKEN)
-```

@@ -413,7 +413,7 @@ async def battle(ctx, opponent: discord.Member):
     winner = ctx.author if user_score > opp_score or (user_score == opp_score and random.choice([True, False])) else opponent
     await ctx.send(f"⚔️ {ctx.author.display_name}'s {user_pokemon['name']} vs {opponent.display_name}'s {opp_pokemon['name']}! **{winner.display_name}** wins!")
     user, leveled_up = add_xp(str(winner.id), LEVEL_CONFIG.get("battle_win_xp", 25))
-    if leveled_up and LEVEL_CONFIG.get("announce_levelup", True):
+    if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {winner.mention} leveled up to **Level {user['level']}**!")
     logging.info(f"Battle: {ctx.author.display_name} vs {opponent.display_name}, winner: {winner.display_name}")
 
@@ -657,6 +657,14 @@ async def set_youtube_channel(ctx, channel: discord.TextChannel):
     await ctx.send(f"✅ YouTube notifications will now go to {channel.mention}.")
     logging.info(f"YouTube notification channel set to {channel.id}")
 
+@bot.command(name="setmemechannel")
+@commands.has_permissions(administrator=True)
+async def set_meme_channel(ctx, channel: discord.TextChannel):
+    global MEME_CHANNEL_ID
+    MEME_CHANNEL_ID = channel.id
+    await ctx.send(f"✅ Daily memes will now go to {channel.mention}.")
+    logging.info(f"Meme channel set to {channel.id}")
+
 # =========================
 # DM COMMAND MENUS
 # =========================
@@ -707,7 +715,7 @@ async def admin_commands(ctx):
     )
     embed.add_field(
         name="🔔 Notifications Management",
-        value="`addstreamer <twitch_name>`, `addyoutube <channel_id>`, `removestreamer <twitch_name>`, `removeyoutube <channel_id>`, `settwitchchannel #channel`, `setyoutubechannel #channel`, `listfollows`",
+        value="`addstreamer <twitch_name>`, `addyoutube <channel_id>`, `removestreamer <twitch_name>`, `removeyoutube <channel_id>`, `settwitchchannel #channel`, `setyoutubechannel #channel`, `setmemechannel #channel`, `listfollows`",
         inline=False
     )
     embed.add_field(

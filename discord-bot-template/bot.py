@@ -1,3 +1,4 @@
+```python
 import os
 import json
 import random
@@ -51,6 +52,21 @@ TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_SECRET = os.getenv("TWITCH_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
+# Pokémon spawn and catch rates
+SPAWN_COMMON = float(os.getenv("SPAWN_COMMON", 0.60))
+SPAWN_UNCOMMON = float(os.getenv("SPAWN_UNCOMMON", 0.25))
+SPAWN_RARE = float(os.getenv("SPAWN_RARE", 0.10))
+SPAWN_LEGENDARY = float(os.getenv("SPAWN_LEGENDARY", 0.05))
+CATCH_COMMON = float(os.getenv("CATCH_COMMON", 0.80))
+CATCH_UNCOMMON = float(os.getenv("CATCH_UNCOMMON", 0.60))
+CATCH_RARE = float(os.getenv("CATCH_RARE", 0.35))
+CATCH_LEGENDARY = float(os.getenv("CATCH_LEGENDARY", 0.15))
+CATCH_SHINY = float(os.getenv("CATCH_SHINY", 0.10))
+
+# Role colors
+POKEMON_MASTER_COLOR = os.getenv("POKEMON_MASTER_COLOR", "0000FF")  # Default blue
+SHINY_MASTER_COLOR = os.getenv("SHINY_MASTER_COLOR", "800080")      # Default purple
+
 # Debug environment variables
 logging.info(f"DEBUG: DISCORD_TOKEN={'Set' if DISCORD_TOKEN else 'Not set'}")
 logging.info(f"DEBUG: NOTIFY_CHANNEL_ID={NOTIFY_CHANNEL_ID}")
@@ -60,6 +76,9 @@ logging.info(f"DEBUG: MEME_CHANNEL_ID={MEME_CHANNEL_ID}")
 logging.info(f"DEBUG: TWITCH_CLIENT_ID={'Set' if TWITCH_CLIENT_ID else 'Not set'}")
 logging.info(f"DEBUG: TWITCH_SECRET={'Set' if TWITCH_SECRET else 'Not set'}")
 logging.info(f"DEBUG: YOUTUBE_API_KEY={'Set' if YOUTUBE_API_KEY else 'Not set'}")
+logging.info(f"DEBUG: SPAWN_COMMON={SPAWN_COMMON}, SPAWN_UNCOMMON={SPAWN_UNCOMMON}, SPAWN_RARE={SPAWN_RARE}, SPAWN_LEGENDARY={SPAWN_LEGENDARY}")
+logging.info(f"DEBUG: CATCH_COMMON={CATCH_COMMON}, CATCH_UNCOMMON={CATCH_UNCOMMON}, CATCH_RARE={CATCH_RARE}, CATCH_LEGENDARY={CATCH_LEGENDARY}, CATCH_SHINY={CATCH_SHINY}")
+logging.info(f"DEBUG: POKEMON_MASTER_COLOR={POKEMON_MASTER_COLOR}, SHINY_MASTER_COLOR={SHINY_MASTER_COLOR}")
 
 STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", 0))
 
@@ -201,7 +220,12 @@ POKEMON_RARITIES = {
     "uncommon": sorted(list(UNCOMMON - RARE - LEGENDARY)),
     "common": sorted([p for p in ALL_GEN1 if p not in (LEGENDARY | RARE | UNCOMMON)])
 }
-CATCH_RATES = {"common": 0.8, "uncommon": 0.5, "rare": 0.3, "legendary": 0.05}
+CATCH_RATES = {
+    "common": CATCH_COMMON,
+    "uncommon": CATCH_UNCOMMON,
+    "rare": CATCH_RARE,
+    "legendary": CATCH_LEGENDARY
+}
 
 # =========================
 # POKÉMON GAME
@@ -223,7 +247,10 @@ async def pokemon_spawner():
             await asyncio.sleep(60)
             continue
         await asyncio.sleep(1800)  # 30 minutes
-        rarity = random.choices(["common","uncommon","rare","legendary"], weights=[70, 20, 9, 1])[0]
+        rarity = random.choices(
+            ["common", "uncommon", "rare", "legendary"],
+            weights=[SPAWN_COMMON, SPAWN_UNCOMMON, SPAWN_RARE, SPAWN_LEGENDARY]
+        )[0]
         pokemon = random.choice(POKEMON_RARITIES[rarity])
         shiny = (random.random() < SHINY_RATE)
         active_pokemon = (pokemon, rarity, shiny)
@@ -292,7 +319,7 @@ async def catch(ctx, *, name: str):
         await ctx.send("❌ That’s not the Pokémon! The wild Pokémon escaped…")
         active_pokemon = None
         return
-    chance = CATCH_RATES[rarity]
+    chance = CATCH_SHINY if shiny else CATCH_RATES[rarity]
     user_id = str(ctx.author.id)
     if random.random() <= chance:
         entry = {"name": pokemon, "rarity": rarity, "shiny": shiny}
@@ -426,9 +453,9 @@ async def ensure_roles(guild: discord.Guild):
     top_role = discord.utils.get(guild.roles, name="Top Trainer")
     shiny_role = discord.utils.get(guild.roles, name="Shiny Master")
     if not top_role:
-        top_role = await guild.create_role(name="Top Trainer", colour=discord.Colour.gold())
+        top_role = await guild.create_role(name="Top Trainer", colour=discord.Colour(int(POKEMON_MASTER_COLOR, 16)))
     if not shiny_role:
-        shiny_role = await guild.create_role(name="Shiny Master", colour=discord.Colour.purple())
+        shiny_role = await guild.create_role(name="Shiny Master", colour=discord.Colour(int(SHINY_MASTER_COLOR, 16)))
     return top_role, shiny_role
 
 async def update_roles(guild: discord.Guild):

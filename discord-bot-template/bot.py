@@ -768,14 +768,33 @@ async def admin_commands(ctx):
 @bot.command(name="meme")
 async def meme_cmd(ctx):
     if not memes:
+        logging.error("No memes available in memes.json")
         await ctx.send("📭 No memes available.")
         return
     meme = random.choice(memes)
+    logging.info(f"Selected meme: {meme}")
     embed = discord.Embed(title=meme.get("title", "😂 Meme"), color=discord.Color.random())
     if isinstance(meme, dict) and meme.get("url"):
-        embed.set_image(url=meme["url"])
-        await ctx.send(embed=embed)
+        # Basic URL validation
+        if meme["url"].lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+            try:
+                # Test URL accessibility
+                response = requests.head(meme["url"], timeout=5)
+                if response.status_code == 200:
+                    embed.set_image(url=meme["url"])
+                    await ctx.send(embed=embed)
+                    logging.info(f"Sent meme embed with URL: {meme['url']}")
+                else:
+                    logging.error(f"Invalid meme URL (status {response.status_code}): {meme['url']}")
+                    await ctx.send(f"📭 Meme URL is invalid (status {response.status_code}): {meme.get('title', str(meme))}")
+            except requests.RequestException as e:
+                logging.error(f"Failed to access meme URL {meme['url']}: {e}")
+                await ctx.send(f"📭 Failed to load meme image: {meme.get('title', str(meme))}")
+        else:
+            logging.error(f"Meme URL does not end with valid image extension: {meme['url']}")
+            await ctx.send(f"📭 Meme URL is not a valid image: {meme.get('title', str(meme))}")
     else:
+        logging.error(f"Meme lacks valid URL or is not a dictionary: {meme}")
         await ctx.send(f"📭 Meme could not be embedded: {meme.get('title', str(meme))}")
     user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
@@ -815,11 +834,27 @@ async def daily_meme():
         logging.error(f"Meme channel not found: ID {MEME_CHANNEL_ID}")
         return
     meme = random.choice(memes)
+    logging.info(f"Selected daily meme: {meme}")
     embed = discord.Embed(title=meme.get("title", "😂 Daily Meme"), color=discord.Color.random())
     if isinstance(meme, dict) and meme.get("url"):
-        embed.set_image(url=meme["url"])
-        await channel.send(embed=embed)
+        if meme["url"].lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+            try:
+                response = requests.head(meme["url"], timeout=5)
+                if response.status_code == 200:
+                    embed.set_image(url=meme["url"])
+                    await channel.send(embed=embed)
+                    logging.info(f"Sent daily meme embed with URL: {meme['url']}")
+                else:
+                    logging.error(f"Invalid daily meme URL (status {response.status_code}): {meme['url']}")
+                    await channel.send(f"📭 Daily meme URL is invalid (status {response.status_code}): {meme.get('title', str(meme))}")
+            except requests.RequestException as e:
+                logging.error(f"Failed to access daily meme URL {meme['url']}: {e}")
+                await channel.send(f"📭 Failed to load daily meme image: {meme.get('title', str(meme))}")
+        else:
+            logging.error(f"Daily meme URL does not end with valid image extension: {meme['url']}")
+            await channel.send(f"📭 Daily meme URL is not a valid image: {meme.get('title', str(meme))}")
     else:
+        logging.error(f"Daily meme lacks valid URL or is not a dictionary: {meme}")
         await channel.send(f"📭 Daily meme could not be embedded: {meme.get('title', str(meme))}")
     logging.info("Sent daily meme")
 

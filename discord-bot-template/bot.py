@@ -44,7 +44,7 @@ TWITCH_INTERVAL = int(os.getenv("TWITCH_INTERVAL", 2))         # Minutes
 YOUTUBE_INTERVAL = int(os.getenv("YOUTUBE_INTERVAL", 5))       # Minutes
 TWITCH_CHANNEL_ID = int(os.getenv("TWITCH_CHANNEL_ID", NOTIFY_CHANNEL_ID))  # Twitch notifications
 YOUTUBE_CHANNEL_ID = int(os.getenv("YOUTUBE_CHANNEL_ID", NOTIFY_CHANNEL_ID)) # YouTube notifications
-MEME_CHANNEL_ID = int(os.getenv("MEME_CHANNEL_ID", 0))         # Daily memes
+JOKE_CHANNEL_ID = int(os.getenv("JOKE_CHANNEL_ID", 0))         # Daily jokes (replaces MEME_CHANNEL_ID)
 
 # Twitch / YouTube
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
@@ -71,7 +71,7 @@ logging.info(f"DEBUG: DISCORD_TOKEN={'Set' if DISCORD_TOKEN else 'Not set'}")
 logging.info(f"DEBUG: NOTIFY_CHANNEL_ID={NOTIFY_CHANNEL_ID}")
 logging.info(f"DEBUG: TWITCH_CHANNEL_ID={TWITCH_CHANNEL_ID}")
 logging.info(f"DEBUG: YOUTUBE_CHANNEL_ID={YOUTUBE_CHANNEL_ID}")
-logging.info(f"DEBUG: MEME_CHANNEL_ID={MEME_CHANNEL_ID}")
+logging.info(f"DEBUG: JOKE_CHANNEL_ID={JOKE_CHANNEL_ID}")
 logging.info(f"DEBUG: TWITCH_CLIENT_ID={'Set' if TWITCH_CLIENT_ID else 'Not set'}")
 logging.info(f"DEBUG: TWITCH_SECRET={'Set' if TWITCH_SECRET else 'Not set'}")
 logging.info(f"DEBUG: YOUTUBE_API_KEY={'Set' if YOUTUBE_API_KEY else 'Not set'}")
@@ -685,13 +685,13 @@ async def set_youtube_channel(ctx, channel: discord.TextChannel):
     await ctx.send(f"✅ YouTube notifications will now go to {channel.mention}.")
     logging.info(f"YouTube notification channel set to {channel.id}")
 
-@bot.command(name="setmemechannel")
+@bot.command(name="setjokechannel")
 @commands.has_permissions(administrator=True)
-async def set_meme_channel(ctx, channel: discord.TextChannel):
-    global MEME_CHANNEL_ID
-    MEME_CHANNEL_ID = channel.id
-    await ctx.send(f"✅ Daily memes will now go to {channel.mention}.")
-    logging.info(f"Meme channel set to {channel.id}")
+async def set_joke_channel(ctx, channel: discord.TextChannel):
+    global JOKE_CHANNEL_ID
+    JOKE_CHANNEL_ID = channel.id
+    await ctx.send(f"✅ Daily jokes will now go to {channel.mention}.")
+    logging.info(f"Joke channel set to {channel.id}")
 
 # =========================
 # DM COMMAND MENUS
@@ -743,7 +743,7 @@ async def admin_commands(ctx):
     )
     embed.add_field(
         name="🔔 Notifications Management",
-        value="`addstreamer <twitch_name>`, `addyoutube <channel_id>`, `removestreamer <twitch_name>`, `removeyoutube <channel_id>`, `settwitchchannel #channel`, `setyoutubechannel #channel`, `setmemechannel #channel`, `listfollows`",
+        value="`addstreamer <twitch_name>`, `addyoutube <channel_id>`, `removestreamer <twitch_name>`, `removeyoutube <channel_id>`, `settwitchchannel #channel`, `setyoutubechannel #channel`, `setjokechannel #channel`, `listfollows`",
         inline=False
     )
     embed.add_field(
@@ -768,33 +768,14 @@ async def admin_commands(ctx):
 @bot.command(name="meme")
 async def meme_cmd(ctx):
     if not memes:
-        logging.error("No memes available in memes.json")
         await ctx.send("📭 No memes available.")
         return
     meme = random.choice(memes)
-    logging.info(f"Selected meme: {meme}")
     embed = discord.Embed(title=meme.get("title", "😂 Meme"), color=discord.Color.random())
     if isinstance(meme, dict) and meme.get("url"):
-        # Basic URL validation
-        if meme["url"].lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-            try:
-                # Test URL accessibility
-                response = requests.head(meme["url"], timeout=5)
-                if response.status_code == 200:
-                    embed.set_image(url=meme["url"])
-                    await ctx.send(embed=embed)
-                    logging.info(f"Sent meme embed with URL: {meme['url']}")
-                else:
-                    logging.error(f"Invalid meme URL (status {response.status_code}): {meme['url']}")
-                    await ctx.send(f"📭 Meme URL is invalid (status {response.status_code}): {meme.get('title', str(meme))}")
-            except requests.RequestException as e:
-                logging.error(f"Failed to access meme URL {meme['url']}: {e}")
-                await ctx.send(f"📭 Failed to load meme image: {meme.get('title', str(meme))}")
-        else:
-            logging.error(f"Meme URL does not end with valid image extension: {meme['url']}")
-            await ctx.send(f"📭 Meme URL is not a valid image: {meme.get('title', str(meme))}")
+        embed.set_image(url=meme["url"])
+        await ctx.send(embed=embed)
     else:
-        logging.error(f"Meme lacks valid URL or is not a dictionary: {meme}")
         await ctx.send(f"📭 Meme could not be embedded: {meme.get('title', str(meme))}")
     user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
@@ -823,40 +804,31 @@ async def joke_cmd(ctx):
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
-# Daily Meme Task
+# Daily Joke Task (replaces daily_meme)
 @tasks.loop(hours=24)
-async def daily_meme():
-    if MEME_CHANNEL_ID == 0 or not memes:
-        logging.error(f"Daily meme skipped: Invalid channel ID ({MEME_CHANNEL_ID}) or no memes ({len(memes)})")
+async def daily_joke():
+    if JOKE_CHANNEL_ID == 0 or not jokes:
+        logging.error(f"Daily joke skipped: Invalid channel ID ({JOKE_CHANNEL_ID}) or no jokes ({len(jokes)})")
         return
-    channel = bot.get_channel(MEME_CHANNEL_ID)
+    channel = bot.get_channel(JOKE_CHANNEL_ID)
     if not channel:
-        logging.error(f"Meme channel not found: ID {MEME_CHANNEL_ID}")
+        logging.error(f"Joke channel not found: ID {JOKE_CHANNEL_ID}")
         return
-    meme = random.choice(memes)
-    logging.info(f"Selected daily meme: {meme}")
-    embed = discord.Embed(title=meme.get("title", "😂 Daily Meme"), color=discord.Color.random())
-    if isinstance(meme, dict) and meme.get("url"):
-        if meme["url"].lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
-            try:
-                response = requests.head(meme["url"], timeout=5)
-                if response.status_code == 200:
-                    embed.set_image(url=meme["url"])
-                    await channel.send(embed=embed)
-                    logging.info(f"Sent daily meme embed with URL: {meme['url']}")
-                else:
-                    logging.error(f"Invalid daily meme URL (status {response.status_code}): {meme['url']}")
-                    await channel.send(f"📭 Daily meme URL is invalid (status {response.status_code}): {meme.get('title', str(meme))}")
-            except requests.RequestException as e:
-                logging.error(f"Failed to access daily meme URL {meme['url']}: {e}")
-                await channel.send(f"📭 Failed to load daily meme image: {meme.get('title', str(meme))}")
-        else:
-            logging.error(f"Daily meme URL does not end with valid image extension: {meme['url']}")
-            await channel.send(f"📭 Daily meme URL is not a valid image: {meme.get('title', str(meme))}")
-    else:
-        logging.error(f"Daily meme lacks valid URL or is not a dictionary: {meme}")
-        await channel.send(f"📭 Daily meme could not be embedded: {meme.get('title', str(meme))}")
-    logging.info("Sent daily meme")
+    joke = random.choice(jokes)
+    sent = False
+    if isinstance(joke, dict):
+        setup = joke.get("setup")
+        punchline = joke.get("punchline")
+        text = joke.get("text")
+        if setup and punchline:
+            await channel.send(f"🤣 {setup}\n||{punchline}||")
+            sent = True
+        elif text:
+            await channel.send(text)
+            sent = True
+    if not sent:
+        await channel.send(str(joke))
+    logging.info("Sent daily joke")
 
 # =========================
 # LIST FOLLOWED STREAMERS & YOUTUBE CHANNELS
@@ -1051,8 +1023,8 @@ async def on_ready():
     if not youtube_notifier.is_running():
         youtube_notifier.start()
         logging.info("Auto-started YouTube notifier")
-    if not daily_meme.is_running():
-        daily_meme.start()
-        logging.info("Auto-started daily meme")
+    if not daily_joke.is_running():
+        daily_joke.start()
+        logging.info("Auto-started daily joke")
 
 bot.run(DISCORD_TOKEN)

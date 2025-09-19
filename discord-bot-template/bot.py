@@ -549,7 +549,7 @@ async def twitch_notifier():
             is_live = bool(data.get("data"))
             was_live = last_twitch_status.get(username, False)
             if is_live and not was_live:
-                await channel.send(f"🎥 **{username} is LIVE on Twitch!** https://twitch.tv/{username}")
+                await channel.send(f"@everyone 🎥 **{username} is LIVE on Twitch!** https://twitch.tv/{username}")
                 logging.info(f"Sent Twitch live notification for {username}")
             elif not is_live and was_live:
                 logging.info(f"{username} went offline")

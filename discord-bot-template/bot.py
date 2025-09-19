@@ -21,6 +21,8 @@ logging.basicConfig(
 )
 
 # Debug .env loading
+print(f"Current working directory: {os.getcwd()}")
+print(f"Attempting to load .env from: {os.path.abspath('.env')}")
 env_file = ".env"
 if not load_dotenv(env_file):
     logging.error(f"Failed to load .env file at {os.path.abspath(env_file)}. Ensure it exists and is readable.")

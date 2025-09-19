@@ -771,20 +771,12 @@ async def meme_cmd(ctx):
         await ctx.send("📭 No memes available.")
         return
     meme = random.choice(memes)
-    sent = False
-    if isinstance(meme, dict):
-        title = meme.get("title", "")
-        url = meme.get("url", "")
-        if url:
-            embed = discord.Embed(title=title or "😂 Meme", color=discord.Color.random())
-            embed.set_image(url=url)
-            await ctx.send(embed=embed)
-            sent = True
-        elif title:
-            await ctx.send(title or "😂 Meme")
-            sent = True
-    if not sent:
-        await ctx.send(str(meme))
+    embed = discord.Embed(title=meme.get("title", "😂 Meme"), color=discord.Color.random())
+    if isinstance(meme, dict) and meme.get("url"):
+        embed.set_image(url=meme["url"])
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(f"📭 Meme could not be embedded: {meme.get('title', str(meme))}")
     user, leveled_up = add_xp(str(ctx.author.id), LEVEL_CONFIG['meme_xp'])
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
@@ -823,12 +815,12 @@ async def daily_meme():
         logging.error(f"Meme channel not found: ID {MEME_CHANNEL_ID}")
         return
     meme = random.choice(memes)
+    embed = discord.Embed(title=meme.get("title", "😂 Daily Meme"), color=discord.Color.random())
     if isinstance(meme, dict) and meme.get("url"):
-        embed = discord.Embed(title=meme.get("title", "😂 Daily Meme"), color=discord.Color.random())
         embed.set_image(url=meme["url"])
         await channel.send(embed=embed)
     else:
-        await channel.send(str(meme))
+        await channel.send(f"📭 Daily meme could not be embedded: {meme.get('title', str(meme))}")
     logging.info("Sent daily meme")
 
 # =========================

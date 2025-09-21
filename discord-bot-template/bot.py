@@ -608,7 +608,6 @@ async def youtube_notifier():
                 logging.info(f"Sent YouTube notification for channel {ch_id}, video {vid}")
         except requests.RequestException as e:
             logging.error(f"YouTube check error for {ch_id}: {e}")
-            await channel.send(f"⚠️ Error checking YouTube channel {ch_id}: {e}")
         except Exception as e:
             logging.error(f"Unexpected error in youtube_notifier for {ch_id}: {e}")
     if updated:

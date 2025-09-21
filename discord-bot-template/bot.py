@@ -5,7 +5,7 @@ import asyncio
 import requests
 import discord
 from discord.ext import commands, tasks
-from discord.ext.commands import CommandOnCooldown, MissingPermissions
+from discord.ext.commands import CommandOnCooldown, MissingPermissions, MissingRole
 import time
 from dotenv import load_dotenv
 import logging
@@ -129,6 +129,10 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 bot = commands.Bot(command_prefix=get_prefix, intents=intents)
+
+# Track bot state
+bot.is_shutdown = False
+bot.daily_joke_task = None
 
 # Safety: clear any commands if reloaded
 for cmd in list(bot.commands):
@@ -264,6 +268,9 @@ async def pokemon_spawner():
 @commands.has_permissions(administrator=True)
 async def startpokemon(ctx):
     global pokemon_spawning, pokemon_loop_task
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if pokemon_spawning:
         await ctx.send("Pokémon spawns are already running!")
     else:
@@ -276,6 +283,9 @@ async def startpokemon(ctx):
 @commands.has_permissions(administrator=True)
 async def stoppokemon(ctx):
     global pokemon_spawning, pokemon_loop_task
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if not pokemon_spawning:
         await ctx.send("Pokémon spawns are not running!")
     else:
@@ -288,6 +298,9 @@ async def stoppokemon(ctx):
 @bot.command(name="pokemonstatus")
 async def pokemonstatus(ctx):
     global pokemon_spawning, active_pokemon
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if not pokemon_spawning:
         await ctx.send("🛑 Pokémon spawning is currently **OFF**.")
     elif active_pokemon:
@@ -301,6 +314,9 @@ async def pokemonstatus(ctx):
 @commands.has_permissions(administrator=True)
 async def setcatchcd(ctx, seconds: int):
     global CATCH_COOLDOWN
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if seconds < 0:
         await ctx.send("❌ Cooldown must be 0 or greater.")
     else:
@@ -311,6 +327,9 @@ async def setcatchcd(ctx, seconds: int):
 @bot.command(name="catch")
 async def catch(ctx, *, name: str):
     global active_pokemon
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if not active_pokemon:
         await ctx.send("❌ There is no Pokémon to catch right now!")
         return
@@ -343,6 +362,9 @@ async def catch(ctx, *, name: str):
 
 @bot.command(name="pokedex")
 async def pokedex_cmd(ctx, member: discord.Member = None):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     user = member or ctx.author
     user_id = str(user.id)
     if user_id not in pokedex or not pokedex[user_id]:
@@ -366,6 +388,9 @@ async def pokedex_cmd(ctx, member: discord.Member = None):
 
 @bot.command(name="top")
 async def top(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if not pokedex:
         await ctx.send("📭 No Pokémon have been caught yet!")
         return
@@ -390,6 +415,9 @@ pending_trades = {}  # {user_id: (target_id, pokemon_name)}
 
 @bot.command(name="trade")
 async def trade(ctx, member: discord.Member, pokemon_name: str):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     user_id = str(ctx.author.id)
     target_id = str(member.id)
     if user_id == target_id:
@@ -408,6 +436,9 @@ async def trade(ctx, member: discord.Member, pokemon_name: str):
 
 @bot.command(name="accept")
 async def accept_trade(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     user_id = str(ctx.author.id)
     for initiator_id, (target_id, pokemon) in list(pending_trades.items()):
         if user_id == target_id:
@@ -423,6 +454,9 @@ async def accept_trade(ctx):
 # Pokémon Battles
 @bot.command(name="battle")
 async def battle(ctx, opponent: discord.Member):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if opponent.id == ctx.author.id:
         await ctx.send("❌ You cannot battle yourself!")
         return
@@ -459,6 +493,8 @@ async def ensure_roles(guild: discord.Guild):
     return top_role, shiny_role
 
 async def update_roles(guild: discord.Guild):
+    if bot.is_shutdown:
+        return
     if not guild or not pokedex:
         return
     top_role, shiny_role = await ensure_roles(guild)
@@ -479,6 +515,9 @@ async def update_roles(guild: discord.Guild):
 @bot.command(name="forceroles")
 @commands.has_permissions(administrator=True)
 async def forceroles(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     guild = ctx.guild or bot.get_guild(GUILD_ID)
     if not guild:
         await ctx.send("⚠️ Guild not found for role updates.")
@@ -530,6 +569,8 @@ last_twitch_status = {}  # streamer -> bool
 
 @tasks.loop(minutes=TWITCH_INTERVAL)
 async def twitch_notifier():
+    if bot.is_shutdown:
+        return
     if not TWITCH_CLIENT_ID or not TWITCH_SECRET:
         logging.error("Twitch notifier skipped: Missing TWITCH_CLIENT_ID or TWITCH_SECRET")
         return
@@ -566,6 +607,8 @@ async def twitch_notifier():
 # =========================
 @tasks.loop(minutes=YOUTUBE_INTERVAL)
 async def youtube_notifier():
+    if bot.is_shutdown:
+        return
     if not YOUTUBE_API_KEY:
         logging.error("YouTube notifier skipped: Missing YOUTUBE_API_KEY")
         return
@@ -621,6 +664,9 @@ async def youtube_notifier():
 @bot.command(name="addstreamer")
 @commands.has_permissions(administrator=True)
 async def add_streamer(ctx, twitch_name: str):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     name = twitch_name.lower()
     if name in streamers:
         await ctx.send(f"⚠️ **{name}** is already in the Twitch list.")
@@ -634,6 +680,9 @@ async def add_streamer(ctx, twitch_name: str):
 @bot.command(name="addyoutube")
 @commands.has_permissions(administrator=True)
 async def add_youtube(ctx, channel_id: str):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if channel_id in youtube_channels:
         await ctx.send(f"⚠️ Channel `{channel_id}` already tracked.")
         return
@@ -646,6 +695,9 @@ async def add_youtube(ctx, channel_id: str):
 @bot.command(name="removestreamer")
 @commands.has_permissions(administrator=True)
 async def remove_streamer(ctx, twitch_name: str):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     name = twitch_name.lower()
     if name not in streamers:
         await ctx.send(f"⚠️ **{name}** is not in the Twitch list.")
@@ -659,6 +711,9 @@ async def remove_streamer(ctx, twitch_name: str):
 @bot.command(name="removeyoutube")
 @commands.has_permissions(administrator=True)
 async def remove_youtube(ctx, channel_id: str):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if channel_id not in youtube_channels:
         await ctx.send(f"⚠️ Channel `{channel_id}` is not tracked.")
         return
@@ -672,6 +727,9 @@ async def remove_youtube(ctx, channel_id: str):
 @bot.command(name="settwitchchannel")
 @commands.has_permissions(administrator=True)
 async def set_twitch_channel(ctx, channel: discord.TextChannel):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     global TWITCH_CHANNEL_ID
     TWITCH_CHANNEL_ID = channel.id
     await ctx.send(f"✅ Twitch notifications will now go to {channel.mention}.")
@@ -680,6 +738,9 @@ async def set_twitch_channel(ctx, channel: discord.TextChannel):
 @bot.command(name="setyoutubechannel")
 @commands.has_permissions(administrator=True)
 async def set_youtube_channel(ctx, channel: discord.TextChannel):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     global YOUTUBE_CHANNEL_ID
     YOUTUBE_CHANNEL_ID = channel.id
     await ctx.send(f"✅ YouTube notifications will now go to {channel.mention}.")
@@ -688,10 +749,72 @@ async def set_youtube_channel(ctx, channel: discord.TextChannel):
 @bot.command(name="setjokechannel")
 @commands.has_permissions(administrator=True)
 async def set_joke_channel(ctx, channel: discord.TextChannel):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     global JOKE_CHANNEL_ID
     JOKE_CHANNEL_ID = channel.id
     await ctx.send(f"✅ Daily jokes will now go to {channel.mention}.")
     logging.info(f"Joke channel set to {channel.id}")
+
+# =========================
+# MODERATOR COMMANDS
+# =========================
+@bot.command(name="shutdownbot")
+@commands.has_role("Moderator")
+async def shutdownbot(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is already shut down.")
+        return
+    global pokemon_spawning, pokemon_loop_task
+    # Stop Pokémon spawner
+    if pokemon_spawning and pokemon_loop_task:
+        pokemon_spawning = False
+        pokemon_loop_task.cancel()
+        pokemon_loop_task = None
+        logging.info("Pokémon spawner stopped via shutdownbot")
+    # Stop notifiers
+    if twitch_notifier.is_running():
+        twitch_notifier.cancel()
+        logging.info("Twitch notifier stopped via shutdownbot")
+    if youtube_notifier.is_running():
+        youtube_notifier.cancel()
+        logging.info("YouTube notifier stopped via shutdownbot")
+    if bot.daily_joke_task:
+        bot.daily_joke_task.cancel()
+        bot.daily_joke_task = None
+        logging.info("Daily joke task stopped via shutdownbot")
+    # Set shutdown state
+    bot.is_shutdown = True
+    # Log out
+    await ctx.send("🛑 Bot is shutting down...")
+    logging.info(f"Bot shutdown initiated by {ctx.author.display_name}")
+    await bot.close()
+
+@bot.command(name="restartbot")
+@commands.has_role("Moderator")
+async def restartbot(ctx):
+    if not bot.is_shutdown:
+        await ctx.send("❌ Bot is already running.")
+        return
+    global pokemon_spawning, pokemon_loop_task
+    bot.is_shutdown = False
+    # Restart tasks
+    if not pokemon_spawning:
+        pokemon_spawning = True
+        pokemon_loop_task = asyncio.create_task(pokemon_spawner())
+        logging.info("Pokémon spawning restarted via restartbot")
+    if not twitch_notifier.is_running():
+        twitch_notifier.start()
+        logging.info("Twitch notifier restarted via restartbot")
+    if not youtube_notifier.is_running():
+        youtube_notifier.start()
+        logging.info("YouTube notifier restarted via restartbot")
+    if not bot.daily_joke_task:
+        bot.daily_joke_task = asyncio.create_task(daily_joke())
+        logging.info("Daily joke task restarted via restartbot")
+    await ctx.send(f"✅ Bot restarted by {ctx.author.mention}.")
+    logging.info(f"Bot restarted by {ctx.author.display_name}")
 
 # =========================
 # DM COMMAND MENUS
@@ -699,6 +822,9 @@ async def set_joke_channel(ctx, channel: discord.TextChannel):
 @bot.command(name="commands")
 @commands.cooldown(1, 20, commands.BucketType.user)
 async def commands_list(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     embed = discord.Embed(title="📖 Commands", color=discord.Color.blue())
     embed.add_field(
         name="🎮 Pokémon Game",
@@ -721,11 +847,11 @@ async def commands_list(ctx):
         inline=False
     )
     embed.add_field(
-        name="⚙️ Admin Commands",
-        value="Use `admincommands` for admin-only commands like managing spawns, notifications, and levels.",
+        name="⚙️ Admin/Moderator Commands",
+        value="Use `admincommands` for admin-only commands or `modcommands` for moderator commands.",
         inline=False
     )
-    embed.set_footer(text="Type admincommands for full admin command list if you have access.")
+    embed.set_footer(text="Type admincommands or modcommands for full command lists if you have access.")
     try:
         await ctx.author.send(embed=embed)
         await ctx.reply("📬 Sent you a DM with the commands!", mention_author=False)
@@ -735,6 +861,9 @@ async def commands_list(ctx):
 @bot.command(name="admincommands")
 @commands.cooldown(1, 20, commands.BucketType.user)
 async def admin_commands(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     embed = discord.Embed(title="⚙️ Admin Commands", color=discord.Color.red())
     embed.add_field(
         name="🐾 Pokémon Control",
@@ -762,11 +891,32 @@ async def admin_commands(ctx):
     except discord.Forbidden:
         await ctx.reply(embed=embed, mention_author=False)
 
+@bot.command(name="modcommands")
+@commands.cooldown(1, 20, commands.BucketType.user)
+async def mod_commands(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
+    embed = discord.Embed(title="🛠️ Moderator Commands", color=discord.Color.orange())
+    embed.add_field(
+        name="⚙️ Bot Control",
+        value="`shutdownbot`, `restartbot`",
+        inline=False
+    )
+    try:
+        await ctx.author.send(embed=embed)
+        await ctx.reply("📬 Sent you a DM with the moderator commands!", mention_author=False)
+    except discord.Forbidden:
+        await ctx.reply(embed=embed, mention_author=False)
+
 # =========================
 # FUN COMMANDS: MEMES & JOKES
 # =========================
 @bot.command(name="meme")
 async def meme_cmd(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if not memes:
         await ctx.send("📭 No memes available.")
         return
@@ -783,6 +933,9 @@ async def meme_cmd(ctx):
 
 @bot.command(name="joke")
 async def joke_cmd(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if not jokes:
         await ctx.send("📭 No jokes available.")
         return
@@ -804,7 +957,7 @@ async def joke_cmd(ctx):
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
-# Daily Joke Task (replaces daily_meme)
+# Daily Joke Task
 async def daily_joke():
     await bot.wait_until_ready()
     if JOKE_CHANNEL_ID == 0 or not jokes:
@@ -814,15 +967,17 @@ async def daily_joke():
     if not channel:
         logging.error(f"Joke channel not found: ID {JOKE_CHANNEL_ID}")
         return
-    while True:
+    while not bot.is_shutdown:
         now = datetime.utcnow()
         # Set target time to 8:00 AM UTC (adjust as needed)
-        target_time = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        target_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
         if now >= target_time:
             target_time += timedelta(days=1)
         seconds_until = (target_time - now).total_seconds()
         logging.info(f"Daily joke scheduled for {target_time}, waiting {seconds_until:.0f} seconds")
         await asyncio.sleep(seconds_until)
+        if bot.is_shutdown:
+            break
         joke = random.choice(jokes)
         sent = False
         if isinstance(joke, dict):
@@ -844,6 +999,9 @@ async def daily_joke():
 # =========================
 @bot.command(name="listfollows")
 async def list_follows(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     twitch_list = streamers if streamers else ["(none)"]
     youtube_list = list(youtube_channels.keys()) if youtube_channels else ["(none)"]
     embed = discord.Embed(title="📺 Followed Channels", color=discord.Color.blue())
@@ -892,12 +1050,18 @@ def add_xp(user_id: str, amount: int):
 
 @bot.command(name="level")
 async def level_cmd(ctx, member: discord.Member = None):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     user = member or ctx.author
     data = levels.get(str(user.id), {"xp": 0, "level": 0})
     await ctx.send(f"⭐ {user.display_name} - Level {data.get('level', 0)} ({data.get('xp', 0)} XP)")
 
 @bot.command(name="leaderboard")
 async def leaderboard_cmd(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if not levels:
         await ctx.send("📭 No levels recorded yet!")
         return
@@ -914,6 +1078,9 @@ async def leaderboard_cmd(ctx):
 
 @bot.command(name="duel")
 async def duel_cmd(ctx, opponent: discord.Member):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if opponent.id == ctx.author.id:
         await ctx.send("❌ You cannot duel yourself!")
         return
@@ -927,7 +1094,7 @@ async def duel_cmd(ctx, opponent: discord.Member):
 # Message XP
 @bot.event
 async def on_message(message):
-    if message.author.bot or not message.guild:
+    if bot.is_shutdown or message.author.bot or not message.guild:
         return
     # Check if the message is a command
     prefix = get_prefix(bot, message)
@@ -943,6 +1110,9 @@ async def on_message(message):
 @bot.command(name="setxp")
 @commands.has_permissions(administrator=True)
 async def setxp(ctx, xp_type: str, amount: int):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     key_map = {
         "message": "message_xp",
         "catch": "catch_xp",
@@ -964,6 +1134,9 @@ async def setxp(ctx, xp_type: str, amount: int):
 @bot.command(name="getxpconfig")
 @commands.has_permissions(administrator=True)
 async def getxpconfig(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     embed = discord.Embed(title="⚙️ XP Configuration", color=discord.Color.purple())
     for key, value in LEVEL_CONFIG.items():
         embed.add_field(name=key, value=str(value), inline=True)
@@ -972,6 +1145,9 @@ async def getxpconfig(ctx):
 @bot.command(name="togglelevelup")
 @commands.has_permissions(administrator=True)
 async def toggle_levelup(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     LEVEL_CONFIG["announce_levelup"] = not LEVEL_CONFIG.get("announce_levelup", True)
     state = "ON" if LEVEL_CONFIG["announce_levelup"] else "OFF"
     data = load_levels()
@@ -983,6 +1159,9 @@ async def toggle_levelup(ctx):
 @bot.command(name="resetlevel")
 @commands.has_permissions(administrator=True)
 async def reset_level(ctx, member: discord.Member):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     user_id = str(member.id)
     if user_id in levels:
         levels[user_id] = {"xp": 0, "level": 0}
@@ -995,6 +1174,9 @@ async def reset_level(ctx, member: discord.Member):
 @bot.command(name="resetalllevels")
 @commands.has_permissions(administrator=True)
 async def reset_all_levels(ctx, confirm: str = None):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if confirm != "confirm":
         await ctx.send("⚠️ This will reset ALL levels! Type `resetalllevels confirm` to proceed.")
         return
@@ -1008,6 +1190,9 @@ async def reset_all_levels(ctx, confirm: str = None):
 @bot.command(name="setprefix")
 @commands.has_permissions(administrator=True)
 async def setprefix(ctx, prefix: str):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     guild_id = str(ctx.guild.id)
     config.setdefault("prefixes", {})[guild_id] = prefix
     save_json_file(CONFIG_FILE, config)
@@ -1019,12 +1204,17 @@ async def setprefix(ctx, prefix: str):
 # =========================
 @bot.event
 async def on_command_error(ctx, error):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
     if isinstance(error, CommandOnCooldown):
         await ctx.reply(f"⏳ Wait {error.retry_after:.1f}s before reusing this.", delete_after=5, mention_author=False)
     elif isinstance(error, commands.CommandNotFound):
         await ctx.reply(f"❌ That command doesn’t exist. Try `{get_prefix(bot, ctx.message)}commands`.", delete_after=5, mention_author=False)
     elif isinstance(error, MissingPermissions):
         await ctx.reply("❌ You need admin permissions to use this command!", delete_after=5, mention_author=False)
+    elif isinstance(error, MissingRole):
+        await ctx.reply("❌ You need the Moderator role to use this command!", delete_after=5, mention_author=False)
     else:
         logging.error(f"Command error: {error}")
         raise error
@@ -1032,6 +1222,7 @@ async def on_command_error(ctx, error):
 @bot.event
 async def on_ready():
     global pokemon_spawning, pokemon_loop_task
+    bot.is_shutdown = False
     logging.info(f"Bot ready as {bot.user}")
     logging.info(f"{len(bot.commands)} commands registered")
     channel = bot.get_channel(STARTUP_LOG_CHANNEL_ID or NOTIFY_CHANNEL_ID)
@@ -1049,7 +1240,7 @@ async def on_ready():
     if not youtube_notifier.is_running():
         youtube_notifier.start()
         logging.info("Auto-started YouTube notifier")
-    if not hasattr(bot, "daily_joke_task") or bot.daily_joke_task is None:
+    if not bot.daily_joke_task:
         bot.daily_joke_task = asyncio.create_task(daily_joke())
         logging.info("Auto-started daily joke")
 

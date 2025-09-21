@@ -9,6 +9,7 @@ from discord.ext.commands import CommandOnCooldown, MissingPermissions
 import time
 from dotenv import load_dotenv
 import logging
+from datetime import datetime, timedelta
 
 # Setup logging to file and console
 logging.basicConfig(
@@ -804,8 +805,8 @@ async def joke_cmd(ctx):
         await ctx.send(f"🎉 {ctx.author.mention} leveled up to **Level {user['level']}**!")
 
 # Daily Joke Task (replaces daily_meme)
-@tasks.loop(hours=24)
 async def daily_joke():
+    await bot.wait_until_ready()
     if JOKE_CHANNEL_ID == 0 or not jokes:
         logging.error(f"Daily joke skipped: Invalid channel ID ({JOKE_CHANNEL_ID}) or no jokes ({len(jokes)})")
         return
@@ -813,21 +814,30 @@ async def daily_joke():
     if not channel:
         logging.error(f"Joke channel not found: ID {JOKE_CHANNEL_ID}")
         return
-    joke = random.choice(jokes)
-    sent = False
-    if isinstance(joke, dict):
-        setup = joke.get("setup")
-        punchline = joke.get("punchline")
-        text = joke.get("text")
-        if setup and punchline:
-            await channel.send(f"🤣 {setup}\n||{punchline}||")
-            sent = True
-        elif text:
-            await channel.send(text)
-            sent = True
-    if not sent:
-        await channel.send(str(joke))
-    logging.info("Sent daily joke")
+    while True:
+        now = datetime.utcnow()
+        # Set target time to 8:00 AM UTC (adjust as needed)
+        target_time = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        if now >= target_time:
+            target_time += timedelta(days=1)
+        seconds_until = (target_time - now).total_seconds()
+        logging.info(f"Daily joke scheduled for {target_time}, waiting {seconds_until:.0f} seconds")
+        await asyncio.sleep(seconds_until)
+        joke = random.choice(jokes)
+        sent = False
+        if isinstance(joke, dict):
+            setup = joke.get("setup")
+            punchline = joke.get("punchline")
+            text = joke.get("text")
+            if setup and punchline:
+                await channel.send(f"🤣 {setup}\n||{punchline}||")
+                sent = True
+            elif text:
+                await channel.send(text)
+                sent = True
+        if not sent:
+            await channel.send(str(joke))
+        logging.info(f"Sent daily joke at {datetime.utcnow()}")
 
 # =========================
 # LIST FOLLOWED STREAMERS & YOUTUBE CHANNELS
@@ -856,10 +866,13 @@ LEVEL_CONFIG = {
 }
 
 def load_levels():
-    return load_json_file(LEVELS_FILE, {})
+    data = load_json_file(LEVELS_FILE, {})
+    logging.info(f"Levels loaded: {len(data)} users")
+    return data
 
 def save_levels(levels):
     save_json_file(LEVELS_FILE, levels)
+    logging.info(f"Levels saved: {len(levels)} users")
 
 levels = load_levels()
 
@@ -867,13 +880,14 @@ def add_xp(user_id: str, amount: int):
     user = levels.get(user_id, {"xp": 0, "level": 0})
     user["xp"] += amount
     import math
-    new_level = int(math.sqrt(user["xp"] / 50))
+    new_level = int(math.sqrt(user["xp"] / 25))  # Reduced from 50 for faster leveling
     leveled_up = False
     if new_level > user.get("level", 0):
         user["level"] = new_level
         leveled_up = True
     levels[user_id] = user
     save_levels(levels)
+    logging.info(f"XP added for user {user_id}: +{amount} XP, now Level {user['level']} ({user['xp']} XP)")
     return user, leveled_up
 
 @bot.command(name="level")
@@ -909,6 +923,19 @@ async def duel_cmd(ctx, opponent: discord.Member):
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {winner.mention} leveled up to **Level {user['level']}**!")
     logging.info(f"Duel: {ctx.author.display_name} vs {opponent.display_name}, winner: {winner.display_name}")
+
+# Message XP
+@bot.event
+async def on_message(message):
+    if message.author.bot or not message.guild:
+        return
+    # Check if the message is a command
+    prefix = get_prefix(bot, message)
+    if not message.content.startswith(prefix):
+        user, leveled_up = add_xp(str(message.author.id), LEVEL_CONFIG["message_xp"])
+        if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
+            await message.channel.send(f"🎉 {message.author.mention} leveled up to **Level {user['level']}**!")
+    await bot.process_commands(message)
 
 # =========================
 # ADMIN: XP CONFIG / TOGGLES / RESETS
@@ -1022,8 +1049,8 @@ async def on_ready():
     if not youtube_notifier.is_running():
         youtube_notifier.start()
         logging.info("Auto-started YouTube notifier")
-    if not daily_joke.is_running():
-        daily_joke.start()
+    if not hasattr(bot, "daily_joke_task") or bot.daily_joke_task is None:
+        bot.daily_joke_task = asyncio.create_task(daily_joke())
         logging.info("Auto-started daily joke")
 
 bot.run(DISCORD_TOKEN)

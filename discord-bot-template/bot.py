@@ -1025,11 +1025,16 @@ LEVEL_CONFIG = {
 
 def load_levels():
     data = load_json_file(LEVELS_FILE, {})
+    global LEVEL_CONFIG
+    if "_config" in data:
+        LEVEL_CONFIG.update(data.pop("_config"))
     logging.info(f"Levels loaded: {len(data)} users")
     return data
 
 def save_levels(levels):
-    save_json_file(LEVELS_FILE, levels)
+    data = levels.copy()
+    data["_config"] = LEVEL_CONFIG
+    save_json_file(LEVELS_FILE, data)
     logging.info(f"Levels saved: {len(levels)} users")
 
 levels = load_levels()
@@ -1125,9 +1130,7 @@ async def setxp(ctx, xp_type: str, amount: int):
         await ctx.send("❌ Invalid type. Use one of: message, catch, meme, joke, duel_win, battle_win")
         return
     LEVEL_CONFIG[key_map[xp_type]] = amount
-    data = load_levels()
-    data["_config"] = LEVEL_CONFIG
-    save_levels(data)
+    save_levels(levels)
     await ctx.send(f"✅ Updated **{xp_type}** XP to {amount}.")
     logging.info(f"Updated {xp_type} XP to {amount}")
 
@@ -1150,9 +1153,7 @@ async def toggle_levelup(ctx):
         return
     LEVEL_CONFIG["announce_levelup"] = not LEVEL_CONFIG.get("announce_levelup", True)
     state = "ON" if LEVEL_CONFIG["announce_levelup"] else "OFF"
-    data = load_levels()
-    data["_config"] = LEVEL_CONFIG
-    save_levels(data)
+    save_levels(levels)
     await ctx.send(f"🔔 Level-up announcements are now **{state}**.")
     logging.info(f"Level-up announcements set to {state}")
 

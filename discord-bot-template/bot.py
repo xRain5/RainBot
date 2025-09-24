@@ -1,21 +1,3 @@
-
-
-SearchCtrl+K
-Ask
-Ctrl+J
-Voice
-Imagine
-Projects
-History
-Today
-I'd like to make some changes to this file.
-
-1 - I'd like to include a command that displays the top trainers win percentages when using the !battle command for Pokemon
-2 - I'd like the pokemon battles to be based off typing and Base Stats (BST) to determine the winner.
-3 - I'd like a json file to keep track of the top trainers anytime the bot restarts
-bot.py
-Thought for 56s
-python
 import os
 import json
 import random

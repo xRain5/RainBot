@@ -1,3 +1,21 @@
+
+
+SearchCtrl+K
+Ask
+Ctrl+J
+Voice
+Imagine
+Projects
+History
+Today
+I'd like to make some changes to this file.
+
+1 - I'd like to include a command that displays the top trainers win percentages when using the !battle command for Pokemon
+2 - I'd like the pokemon battles to be based off typing and Base Stats (BST) to determine the winner.
+3 - I'd like a json file to keep track of the top trainers anytime the bot restarts
+bot.py
+Thought for 56s
+python
 import os
 import json
 import random
@@ -91,6 +109,7 @@ POKEMON_FILE = "pokemon_data.json"   # Catches + streaks
 MEME_FILE = "memes.json"             # Memes list
 JOKE_FILE = "jokes.json"             # Jokes list
 CONFIG_FILE = "config.json"          # Server prefixes
+BATTLE_STATS_FILE = "battle_stats.json"  # Battle wins and losses
 
 def load_json_file(path, default):
     if os.path.exists(path):
@@ -116,6 +135,7 @@ def save_json_file(path, data):
 memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
 config = load_json_file(CONFIG_FILE, {"prefixes": {}})
+battle_stats = load_json_file(BATTLE_STATS_FILE, {})
 
 # =========================
 # DISCORD BOT
@@ -168,6 +188,9 @@ def load_pokemon_data():
 
 def save_pokemon_data(poke):
     save_json_file(POKEMON_FILE, poke)
+
+def save_battle_stats():
+    save_json_file(BATTLE_STATS_FILE, battle_stats)
 
 notify_data = load_notify_data()
 streamers = notify_data.get("streamers", [])
@@ -230,6 +253,186 @@ CATCH_RATES = {
     "rare": CATCH_RARE,
     "legendary": CATCH_LEGENDARY
 }
+
+# Gen 1 Type Chart (effectiveness: attacking type -> defending type)
+TYPE_CHART = {
+    "Normal": {"Rock": 0.5, "Ghost": 0},
+    "Fire": {"Fire": 0.5, "Water": 0.5, "Grass": 2, "Ice": 2, "Bug": 2, "Rock": 0.5, "Dragon": 0.5},
+    "Water": {"Fire": 2, "Water": 0.5, "Grass": 0.5, "Ground": 2, "Rock": 2, "Dragon": 0.5},
+    "Grass": {"Fire": 0.5, "Water": 2, "Grass": 0.5, "Poison": 0.5, "Ground": 2, "Flying": 0.5, "Bug": 0.5, "Rock": 2, "Dragon": 0.5},
+    "Electric": {"Water": 2, "Grass": 0.5, "Electric": 0.5, "Ground": 0, "Flying": 2, "Dragon": 0.5},
+    "Ice": {"Fire": 0.5, "Water": 0.5, "Grass": 2, "Ice": 0.5, "Ground": 2, "Flying": 2, "Dragon": 2},
+    "Fighting": {"Normal": 2, "Ice": 2, "Poison": 0.5, "Flying": 0.5, "Psychic": 0.5, "Bug": 0.5, "Rock": 2, "Ghost": 0},
+    "Poison": {"Grass": 2, "Poison": 0.5, "Ground": 0.5, "Bug": 2, "Rock": 0.5, "Ghost": 0.5},
+    "Ground": {"Fire": 2, "Electric": 2, "Grass": 0.5, "Poison": 2, "Flying": 0, "Bug": 0.5, "Rock": 2},
+    "Flying": {"Electric": 0.5, "Grass": 2, "Fighting": 2, "Bug": 2, "Rock": 0.5},
+    "Psychic": {"Fighting": 2, "Poison": 2, "Psychic": 0.5, "Ghost": 0},  # Gen 1: Psychic immune to Ghost
+    "Bug": {"Fire": 0.5, "Grass": 2, "Fighting": 0.5, "Poison": 2, "Flying": 0.5, "Psychic": 2, "Ghost": 0.5, "Rock": 0.5},
+    "Rock": {"Fire": 2, "Ice": 2, "Fighting": 0.5, "Ground": 0.5, "Flying": 2, "Bug": 2},
+    "Ghost": {"Normal": 0, "Psychic": 0, "Ghost": 2},  # Gen 1 bug: Ghost not effective on Psychic
+    "Dragon": {"Dragon": 2},
+}
+
+# Pokémon Stats: name -> {"types": list, "bst": int}
+POKEMON_STATS = {
+    "Bulbasaur": {"types": ["Grass", "Poison"], "bst": 318},
+    "Ivysaur": {"types": ["Grass", "Poison"], "bst": 405},
+    "Venusaur": {"types": ["Grass", "Poison"], "bst": 525},
+    "Charmander": {"types": ["Fire"], "bst": 309},
+    "Charmeleon": {"types": ["Fire"], "bst": 405},
+    "Charizard": {"types": ["Fire", "Flying"], "bst": 534},
+    "Squirtle": {"types": ["Water"], "bst": 314},
+    "Wartortle": {"types": ["Water"], "bst": 405},
+    "Blastoise": {"types": ["Water"], "bst": 530},
+    "Caterpie": {"types": ["Bug"], "bst": 195},
+    "Metapod": {"types": ["Bug"], "bst": 205},
+    "Butterfree": {"types": ["Bug", "Flying"], "bst": 395},
+    "Weedle": {"types": ["Bug", "Poison"], "bst": 195},
+    "Kakuna": {"types": ["Bug", "Poison"], "bst": 205},
+    "Beedrill": {"types": ["Bug", "Poison"], "bst": 395},
+    "Pidgey": {"types": ["Normal", "Flying"], "bst": 251},
+    "Pidgeotto": {"types": ["Normal", "Flying"], "bst": 349},
+    "Pidgeot": {"types": ["Normal", "Flying"], "bst": 479},
+    "Rattata": {"types": ["Normal"], "bst": 253},
+    "Raticate": {"types": ["Normal"], "bst": 413},
+    "Spearow": {"types": ["Normal", "Flying"], "bst": 262},
+    "Fearow": {"types": ["Normal", "Flying"], "bst": 442},
+    "Ekans": {"types": ["Poison"], "bst": 288},
+    "Arbok": {"types": ["Poison"], "bst": 438},
+    "Pikachu": {"types": ["Electric"], "bst": 320},
+    "Raichu": {"types": ["Electric"], "bst": 485},
+    "Sandshrew": {"types": ["Ground"], "bst": 300},
+    "Sandslash": {"types": ["Ground"], "bst": 450},
+    "Nidoran-F": {"types": ["Poison"], "bst": 275},
+    "Nidorina": {"types": ["Poison"], "bst": 365},
+    "Nidoqueen": {"types": ["Poison", "Ground"], "bst": 505},
+    "Nidoran-M": {"types": ["Poison"], "bst": 273},
+    "Nidorino": {"types": ["Poison"], "bst": 365},
+    "Nidoking": {"types": ["Poison", "Ground"], "bst": 505},
+    "Clefairy": {"types": ["Normal"], "bst": 323},
+    "Clefable": {"types": ["Normal"], "bst": 483},
+    "Vulpix": {"types": ["Fire"], "bst": 299},
+    "Ninetales": {"types": ["Fire"], "bst": 505},
+    "Jigglypuff": {"types": ["Normal"], "bst": 270},
+    "Wigglytuff": {"types": ["Normal"], "bst": 435},
+    "Zubat": {"types": ["Poison", "Flying"], "bst": 245},
+    "Golbat": {"types": ["Poison", "Flying"], "bst": 455},
+    "Oddish": {"types": ["Grass", "Poison"], "bst": 320},
+    "Gloom": {"types": ["Grass", "Poison"], "bst": 395},
+    "Vileplume": {"types": ["Grass", "Poison"], "bst": 490},
+    "Paras": {"types": ["Bug", "Grass"], "bst": 285},
+    "Parasect": {"types": ["Bug", "Grass"], "bst": 405},
+    "Venonat": {"types": ["Bug", "Poison"], "bst": 305},
+    "Venomoth": {"types": ["Bug", "Poison"], "bst": 450},
+    "Diglett": {"types": ["Ground"], "bst": 265},
+    "Dugtrio": {"types": ["Ground"], "bst": 405},
+    "Meowth": {"types": ["Normal"], "bst": 290},
+    "Persian": {"types": ["Normal"], "bst": 440},
+    "Psyduck": {"types": ["Water"], "bst": 320},
+    "Golduck": {"types": ["Water"], "bst": 500},
+    "Mankey": {"types": ["Fighting"], "bst": 305},
+    "Primeape": {"types": ["Fighting"], "bst": 455},
+    "Growlithe": {"types": ["Fire"], "bst": 350},
+    "Arcanine": {"types": ["Fire"], "bst": 555},
+    "Poliwag": {"types": ["Water"], "bst": 300},
+    "Poliwhirl": {"types": ["Water"], "bst": 385},
+    "Poliwrath": {"types": ["Water", "Fighting"], "bst": 510},
+    "Abra": {"types": ["Psychic"], "bst": 310},
+    "Kadabra": {"types": ["Psychic"], "bst": 400},
+    "Alakazam": {"types": ["Psychic"], "bst": 500},
+    "Machop": {"types": ["Fighting"], "bst": 305},
+    "Machoke": {"types": ["Fighting"], "bst": 405},
+    "Machamp": {"types": ["Fighting"], "bst": 505},
+    "Bellsprout": {"types": ["Grass", "Poison"], "bst": 300},
+    "Weepinbell": {"types": ["Grass", "Poison"], "bst": 390},
+    "Victreebel": {"types": ["Grass", "Poison"], "bst": 490},
+    "Tentacool": {"types": ["Water", "Poison"], "bst": 335},
+    "Tentacruel": {"types": ["Water", "Poison"], "bst": 515},
+    "Geodude": {"types": ["Rock", "Ground"], "bst": 300},
+    "Graveler": {"types": ["Rock", "Ground"], "bst": 390},
+    "Golem": {"types": ["Rock", "Ground"], "bst": 495},
+    "Ponyta": {"types": ["Fire"], "bst": 410},
+    "Rapidash": {"types": ["Fire"], "bst": 500},
+    "Slowpoke": {"types": ["Water", "Psychic"], "bst": 315},
+    "Slowbro": {"types": ["Water", "Psychic"], "bst": 490},
+    "Magnemite": {"types": ["Electric"], "bst": 325},
+    "Magneton": {"types": ["Electric"], "bst": 465},
+    "Farfetch'd": {"types": ["Normal", "Flying"], "bst": 352},
+    "Doduo": {"types": ["Normal", "Flying"], "bst": 310},
+    "Dodrio": {"types": ["Normal", "Flying"], "bst": 460},
+    "Seel": {"types": ["Water"], "bst": 325},
+    "Dewgong": {"types": ["Water", "Ice"], "bst": 475},
+    "Grimer": {"types": ["Poison"], "bst": 325},
+    "Muk": {"types": ["Poison"], "bst": 500},
+    "Shellder": {"types": ["Water"], "bst": 305},
+    "Cloyster": {"types": ["Water", "Ice"], "bst": 525},
+    "Gastly": {"types": ["Ghost", "Poison"], "bst": 310},
+    "Haunter": {"types": ["Ghost", "Poison"], "bst": 405},
+    "Gengar": {"types": ["Ghost", "Poison"], "bst": 500},
+    "Onix": {"types": ["Rock", "Ground"], "bst": 385},
+    "Drowzee": {"types": ["Psychic"], "bst": 328},
+    "Hypno": {"types": ["Psychic"], "bst": 483},
+    "Krabby": {"types": ["Water"], "bst": 325},
+    "Kingler": {"types": ["Water"], "bst": 475},
+    "Voltorb": {"types": ["Electric"], "bst": 330},
+    "Electrode": {"types": ["Electric"], "bst": 480},
+    "Exeggcute": {"types": ["Grass", "Psychic"], "bst": 325},
+    "Exeggutor": {"types": ["Grass", "Psychic"], "bst": 520},
+    "Cubone": {"types": ["Ground"], "bst": 320},
+    "Marowak": {"types": ["Ground"], "bst": 425},
+    "Hitmonlee": {"types": ["Fighting"], "bst": 455},
+    "Hitmonchan": {"types": ["Fighting"], "bst": 455},
+    "Lickitung": {"types": ["Normal"], "bst": 385},
+    "Koffing": {"types": ["Poison"], "bst": 340},
+    "Weezing": {"types": ["Poison"], "bst": 490},
+    "Rhyhorn": {"types": ["Ground", "Rock"], "bst": 345},
+    "Rhydon": {"types": ["Ground", "Rock"], "bst": 485},
+    "Chansey": {"types": ["Normal"], "bst": 450},
+    "Tangela": {"types": ["Grass"], "bst": 435},
+    "Kangaskhan": {"types": ["Normal"], "bst": 490},
+    "Horsea": {"types": ["Water"], "bst": 295},
+    "Seadra": {"types": ["Water"], "bst": 440},
+    "Goldeen": {"types": ["Water"], "bst": 320},
+    "Seaking": {"types": ["Water"], "bst": 450},
+    "Staryu": {"types": ["Water"], "bst": 340},
+    "Starmie": {"types": ["Water", "Psychic"], "bst": 520},
+    "Mr. Mime": {"types": ["Psychic"], "bst": 460},
+    "Scyther": {"types": ["Bug", "Flying"], "bst": 500},
+    "Jynx": {"types": ["Ice", "Psychic"], "bst": 455},
+    "Electabuzz": {"types": ["Electric"], "bst": 490},
+    "Magmar": {"types": ["Fire"], "bst": 495},
+    "Pinsir": {"types": ["Bug"], "bst": 500},
+    "Tauros": {"types": ["Normal"], "bst": 490},
+    "Magikarp": {"types": ["Water"], "bst": 200},
+    "Gyarados": {"types": ["Water", "Flying"], "bst": 540},
+    "Lapras": {"types": ["Water", "Ice"], "bst": 535},
+    "Ditto": {"types": ["Normal"], "bst": 288},
+    "Eevee": {"types": ["Normal"], "bst": 325},
+    "Vaporeon": {"types": ["Water"], "bst": 525},
+    "Jolteon": {"types": ["Electric"], "bst": 525},
+    "Flareon": {"types": ["Fire"], "bst": 525},
+    "Porygon": {"types": ["Normal"], "bst": 395},
+    "Omanyte": {"types": ["Rock", "Water"], "bst": 355},
+    "Omastar": {"types": ["Rock", "Water"], "bst": 495},
+    "Kabuto": {"types": ["Rock", "Water"], "bst": 355},
+    "Kabutops": {"types": ["Rock", "Water"], "bst": 495},
+    "Aerodactyl": {"types": ["Rock", "Flying"], "bst": 515},
+    "Snorlax": {"types": ["Normal"], "bst": 540},
+    "Articuno": {"types": ["Ice", "Flying"], "bst": 580},
+    "Zapdos": {"types": ["Electric", "Flying"], "bst": 580},
+    "Moltres": {"types": ["Fire", "Flying"], "bst": 580},
+    "Dratini": {"types": ["Dragon"], "bst": 300},
+    "Dragonair": {"types": ["Dragon"], "bst": 420},
+    "Dragonite": {"types": ["Dragon", "Flying"], "bst": 600},
+    "Mewtwo": {"types": ["Psychic"], "bst": 680},
+    "Mew": {"types": ["Psychic"], "bst": 600},
+}
+
+def get_effectiveness(att_type, def_types):
+    eff = 1.0
+    for def_type in def_types:
+        eff *= TYPE_CHART.get(att_type, {}).get(def_type, 1.0)
+    return eff
 
 # =========================
 # POKÉMON GAME
@@ -410,6 +613,31 @@ async def top(ctx):
         embed.add_field(name=f"#{i} {name}", value=f"{total} Pokémon ({shinies} shiny)", inline=False)
     await ctx.send(embed=embed)
 
+@bot.command(name="battletop")
+async def battletop(ctx):
+    if bot.is_shutdown:
+        await ctx.send("❌ Bot is currently shut down. Use `!restartbot` to restart.")
+        return
+    if not battle_stats:
+        await ctx.send("📭 No battles have been fought yet!")
+        return
+    leaders = []
+    for uid, stats in battle_stats.items():
+        total = stats["wins"] + stats["losses"]
+        if total > 0:
+            perc = (stats["wins"] / total) * 100
+            leaders.append((uid, perc, stats["wins"]))
+    leaders.sort(key=lambda x: (x[1], x[2]), reverse=True)
+    embed = discord.Embed(title="🏆 Top Battle Trainers (Win %)", color=discord.Color.gold())
+    for i, (uid, perc, wins) in enumerate(leaders[:10], 1):
+        try:
+            user = await bot.fetch_user(int(uid))
+            name = user.display_name
+        except Exception:
+            name = f"User {uid}"
+        embed.add_field(name=f"#{i} {name}", value=f"{perc:.1f}% win rate ({wins} wins)", inline=False)
+    await ctx.send(embed=embed)
+
 # Pokémon Trading
 pending_trades = {}  # {user_id: (target_id, pokemon_name)}
 
@@ -467,15 +695,24 @@ async def battle(ctx, opponent: discord.Member):
         return
     user_pokemon = random.choice(pokedex[user_id])
     opp_pokemon = random.choice(pokedex[opp_id])
-    user_score = {"legendary": 4, "rare": 3, "uncommon": 2, "common": 1}[user_pokemon["rarity"]]
-    opp_score = {"legendary": 4, "rare": 3, "uncommon": 2, "common": 1}[opp_pokemon["rarity"]]
-    if user_pokemon["shiny"]:
-        user_score += 1
-    if opp_pokemon["shiny"]:
-        opp_score += 1
-    winner = ctx.author if user_score > opp_score or (user_score == opp_score and random.choice([True, False])) else opponent
+    user_pok = POKEMON_STATS[user_pokemon["name"]]
+    opp_pok = POKEMON_STATS[opp_pokemon["name"]]
+    user_eff = get_effectiveness(user_pok["types"][0], opp_pok["types"])
+    opp_eff = get_effectiveness(opp_pok["types"][0], user_pok["types"])
+    user_score = user_pok["bst"] * user_eff * (1.1 if user_pokemon["shiny"] else 1.0)
+    opp_score = opp_pok["bst"] * opp_eff * (1.1 if opp_pokemon["shiny"] else 1.0)
+    if user_score == opp_score:
+        winner = random.choice([ctx.author, opponent])
+    else:
+        prob_user = user_score / (user_score + opp_score)
+        winner = ctx.author if random.random() < prob_user else opponent
+    winner_id = str(winner.id)
+    loser_id = opp_id if winner_id == user_id else user_id
+    battle_stats.setdefault(winner_id, {"wins": 0, "losses": 0})["wins"] += 1
+    battle_stats.setdefault(loser_id, {"wins": 0, "losses": 0})["losses"] += 1
+    save_battle_stats()
     await ctx.send(f"⚔️ {ctx.author.display_name}'s {user_pokemon['name']} vs {opponent.display_name}'s {opp_pokemon['name']}! **{winner.display_name}** wins!")
-    user, leveled_up = add_xp(str(winner.id), LEVEL_CONFIG.get("battle_win_xp", 25))
+    user, leveled_up = add_xp(winner_id, LEVEL_CONFIG.get("battle_win_xp", 25))
     if leveled_up and LEVEL_CONFIG.get('announce_levelup', True):
         await ctx.send(f"🎉 {winner.mention} leveled up to **Level {user['level']}**!")
     logging.info(f"Battle: {ctx.author.display_name} vs {opponent.display_name}, winner: {winner.display_name}")
@@ -828,7 +1065,7 @@ async def commands_list(ctx):
     embed = discord.Embed(title="📖 Commands", color=discord.Color.blue())
     embed.add_field(
         name="🎮 Pokémon Game",
-        value="`catch <name>`, `pokedex [@user]`, `top`, `trade @user <pokemon>`, `accept`, `battle @user`",
+        value="`catch <name>`, `pokedex [@user]`, `top`, `battletop`, `trade @user <pokemon>`, `accept`, `battle @user`",
         inline=False
     )
     embed.add_field(
@@ -1246,3 +1483,9 @@ async def on_ready():
         logging.info("Auto-started daily joke")
 
 bot.run(DISCORD_TOKEN)
+4.2s
+
+
+
+Upgrade to SuperGrok
+New conversation - Grok

@@ -92,6 +92,7 @@ MEME_FILE = "memes.json"             # Memes list
 JOKE_FILE = "jokes.json"             # Jokes list
 CONFIG_FILE = "config.json"          # Server prefixes
 BATTLE_STATS_FILE = "battle_stats.json"  # Battle wins and losses
+TOPTRAINER_FILE = "toptrainer.json"   # Top trainer and shiny master tracking
 
 def load_json_file(path, default):
     if os.path.exists(path):
@@ -118,6 +119,10 @@ memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
 config = load_json_file(CONFIG_FILE, {"prefixes": {}})
 battle_stats = load_json_file(BATTLE_STATS_FILE, {})
+toptrainer_data = load_json_file(TOPTRAINER_FILE, {"top_trainer_id": None, "shiny_trainer_id": None})
+
+def save_toptrainer_data():
+    save_json_file(TOPTRAINER_FILE, toptrainer_data)
 
 # =========================
 # DISCORD BOT
@@ -721,14 +726,21 @@ async def update_roles(guild: discord.Guild):
     shiny_counts = {uid: sum(1 for m in mons if m["shiny"]) for uid, mons in pokedex.items()}
     shiny_trainer_id = max(shiny_counts, key=shiny_counts.get) if shiny_counts else None
     max_shinies = shiny_counts[shiny_trainer_id] if shiny_trainer_id else 0
+
+    # Save to toptrainer.json
+    toptrainer_data["top_trainer_id"] = top_trainer_id
+    toptrainer_data["shiny_trainer_id"] = shiny_trainer_id
+    save_toptrainer_data()
+
     for member in guild.members:
-        if top_role in member.roles and str(member.id) != top_trainer_id:
+        member_id = str(member.id)
+        if top_role in member.roles and member_id != top_trainer_id:
             await member.remove_roles(top_role)
-        if top_trainer_id and str(member.id) == top_trainer_id and top_role not in member.roles:
+        if top_trainer_id and member_id == top_trainer_id and top_role not in member.roles:
             await member.add_roles(top_role)
-        if shiny_role in member.roles and (str(member.id) != shiny_trainer_id or max_shinies == 0):
+        if shiny_role in member.roles and (member_id != shiny_trainer_id or max_shinies == 0):
             await member.remove_roles(shiny_role)
-        if shiny_trainer_id and str(member.id) == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
+        if shiny_trainer_id and member_id == shiny_trainer_id and shiny_role not in member.roles and max_shinies > 0:
             await member.add_roles(shiny_role)
 
 @bot.command(name="forceroles")
@@ -1032,6 +1044,11 @@ async def restartbot(ctx):
     if not bot.daily_joke_task:
         bot.daily_joke_task = asyncio.create_task(daily_joke())
         logging.info("Daily joke task restarted via restartbot")
+    # Restore roles from toptrainer.json
+    guild = ctx.guild or bot.get_guild(GUILD_ID)
+    if guild and toptrainer_data.get("top_trainer_id") or toptrainer_data.get("shiny_trainer_id"):
+        await update_roles(guild)
+        logging.info("Restored top trainer roles from toptrainer.json")
     await ctx.send(f"✅ Bot restarted by {ctx.author.mention}.")
     logging.info(f"Bot restarted by {ctx.author.display_name}")
 

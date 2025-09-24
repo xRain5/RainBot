@@ -1,1 +1,11 @@
-{}
+{
+  "_config": {
+    "message_xp": 5,
+    "catch_xp": 20,
+    "meme_xp": 10,
+    "joke_xp": 10,
+    "duel_win_xp": 30,
+    "battle_win_xp": 25,
+    "announce_levelup": true
+  }
+}

@@ -1465,9 +1465,3 @@ async def on_ready():
         logging.info("Auto-started daily joke")
 
 bot.run(DISCORD_TOKEN)
-4.2s
-
-
-
-Upgrade to SuperGrok
-New conversation - Grok

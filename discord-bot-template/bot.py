@@ -1625,4 +1625,13 @@ async def on_ready():
         bot.daily_joke_task = asyncio.create_task(daily_joke())
         logging.info("Auto-started daily joke")
 
+@bot.event
+async def on_ready():
+    global pokemon_spawning, pokemon_loop_task
+    if not pokemon_spawning:
+        pokemon_spawning = True
+        pokemon_loop_task = asyncio.create_task(pokemon_spawner())
+        logging.info("Pokémon spawning started automatically on startup.")
+    print(f"✅ Logged in as {bot.user} (ID: {bot.user.id})")
+
 bot.run(DISCORD_TOKEN)

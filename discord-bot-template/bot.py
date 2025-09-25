@@ -281,7 +281,9 @@ def load_levels():
     })
     return data.get("levels", {})
 
-def save_levels(levels_data, config=LEVEL_CONFIG):
+def save_levels(levels_data, config=None):
+    if config is None:
+        config = LEVEL_CONFIG
     data = {"_config": config, "levels": levels_data}
     save_json_file(LEVELS_FILE, data)
     logging.info(f"Levels saved: {len(levels_data)} users")

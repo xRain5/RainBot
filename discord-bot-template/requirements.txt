@@ -4,3 +4,4 @@ requests
 aiohttp
 python-dotenv
 discord.py
+filelock

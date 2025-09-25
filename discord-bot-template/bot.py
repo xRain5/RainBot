@@ -4,6 +4,8 @@ import random
 import asyncio
 import requests
 import discord
+import filelock
+import math
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandOnCooldown, MissingPermissions, MissingRole
 import time
@@ -82,6 +84,10 @@ logging.info(f"DEBUG: POKEMON_MASTER_COLOR={POKEMON_MASTER_COLOR}, SHINY_MASTER_
 
 STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", 0))
 
+if not DISCORD_TOKEN:
+    logging.error("DISCORD_TOKEN not set in .env")
+    exit(1
+
 # =========================
 # DATA FILES
 # =========================
@@ -94,27 +100,49 @@ CONFIG_FILE = "config.json"          # Server prefixes
 BATTLE_STATS_FILE = "battle_stats.json"  # Battle wins and losses
 TOPTRAINER_FILE = "toptrainer.json"   # Top trainer and shiny master tracking
 
+# JSON file handling with file locking
 def load_json_file(path, default):
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-                logging.info(f"Loaded {path}")
-                return data
-            except Exception as e:
-                logging.error(f"Error loading {path}: {e}")
-                return default
-    logging.info(f"File {path} not found, using default: {default}")
-    return default
+    lock = filelock.FileLock(f"{path}.lock")
+    try:
+        with lock.acquire(timeout=10):  # Wait up to 10 seconds for lock
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    try:
+                        data = json.load(f)
+                        logging.info(f"Loaded {path}")
+                        return data
+                    except json.JSONDecodeError as e:
+                        logging.error(f"JSON decode error in {path}: {e}. Reverting to default.")
+                        return default
+                    except Exception as e:
+                        logging.error(f"Error loading {path}: {e}")
+                        return default
+            logging.info(f"File {path} not found, using default: {default}")
+            return default
+    except filelock.Timeout:
+        logging.error(f"Timeout acquiring lock for {path}")
+        return default
 
 def save_json_file(path, data):
+    lock = filelock.FileLock(f"{path}.lock")
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        logging.info(f"Saved {path}")
+        with lock.acquire(timeout=10):
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            logging.info(f"Saved {path}")
+    except filelock.Timeout:
+        logging.error(f"Timeout acquiring lock for {path}")
+        raise Exception(f"Could not save {path}: Lock timeout")
     except Exception as e:
         logging.error(f"Error saving {path}: {e}")
+        raise Exception(f"Could not save {path}: {e}")
 
+def load_pokemon_data():
+    return load_json_file(POKEMON_FILE, {"pokedex": {}, "streaks": {}})
+
+def save_pokemon_data(poke):
+    save_json_file(POKEMON_FILE, poke)
+    
 memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
 config = load_json_file(CONFIG_FILE, {"prefixes": {}})
@@ -136,6 +164,10 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 bot = commands.Bot(command_prefix=get_prefix, intents=intents)
+pending_trades = {}
+pokemon_spawning = False
+pokemon_loop_task = None
+active_pokemon = None
 
 # Track bot state
 bot.is_shutdown = False
@@ -169,12 +201,6 @@ def save_notify_data(d):
         "youtube_channels": {ch_id: "" for ch_id in d.get("youtube_channels", {})}
     }
     save_json_file(PERMANENT_CHANNELS_FILE, permanent_data)
-
-def load_pokemon_data():
-    return load_json_file(POKEMON_FILE, {"pokedex": {}, "streaks": {}})
-
-def save_pokemon_data(poke):
-    save_json_file(POKEMON_FILE, poke)
 
 def save_battle_stats():
     save_json_file(BATTLE_STATS_FILE, battle_stats)
@@ -514,6 +540,7 @@ async def setcatchcd(ctx, seconds: int):
         await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
         logging.info(f"Catch cooldown set to {CATCH_COOLDOWN} seconds")
 
+# Pokémon spawner and catch logic (unchanged, but ensure save_pokemon_data is called)
 @bot.command(name="catch")
 async def catch(ctx, *, name: str):
     global active_pokemon
@@ -534,7 +561,12 @@ async def catch(ctx, *, name: str):
         entry = {"name": pokemon, "rarity": rarity, "shiny": shiny}
         pokedex.setdefault(user_id, []).append(entry)
         streaks[user_id] = streaks.get(user_id, 0) + 1
-        save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+        try:
+            save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+        except Exception as e:
+            await ctx.send("⚠️ Error saving Pokémon data. Your catch may not have been saved.")
+            logging.error(f"Failed to save Pokémon data in catch command: {e}")
+            return
         shiny_text = " ✨SHINY✨" if shiny else ""
         msg = f"✅ {ctx.author.mention} caught **{pokemon}** ({rarity}){shiny_text}!"
         if streaks[user_id] >= 3:
@@ -546,7 +578,12 @@ async def catch(ctx, *, name: str):
         await update_roles(ctx.guild)
     else:
         streaks[user_id] = 0
-        save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+        try:
+            save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+        except Exception as e:
+            await ctx.send("⚠️ Error saving Pokémon data. Streak reset may not have been saved.")
+            logging.error(f"Failed to save Pokémon data in catch command: {e}")
+            return
         await ctx.send(f"💨 The wild {pokemon} escaped {ctx.author.mention}!")
     active_pokemon = None
 
@@ -628,6 +665,7 @@ async def battletop(ctx):
 # Pokémon Trading
 pending_trades = {}  # {user_id: (target_id, pokemon_name)}
 
+# Trade command (updated to ensure data saving)
 @bot.command(name="trade")
 async def trade(ctx, member: discord.Member, pokemon_name: str):
     if bot.is_shutdown:
@@ -659,7 +697,12 @@ async def accept_trade(ctx):
         if user_id == target_id:
             pokedex[initiator_id].remove(pokemon)
             pokedex[user_id].append(pokemon)
-            save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+            try:
+                save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+            except Exception as e:
+                await ctx.send("⚠️ Error saving Pokémon data. Trade may not have been saved.")
+                logging.error(f"Failed to save Pokémon data in accept_trade: {e}")
+                return
             await ctx.send(f"✅ Trade complete: {ctx.author.display_name} received {pokemon['name']} from <@{initiator_id}>!")
             del pending_trades[initiator_id]
             logging.info(f"Trade completed: {ctx.author.display_name} received {pokemon['name']} from User {initiator_id}")
@@ -999,6 +1042,13 @@ async def shutdownbot(ctx):
         await ctx.send("❌ Bot is already shut down.")
         return
     global pokemon_spawning, pokemon_loop_task
+    # Save Pokémon data before shutting down
+    try:
+        save_pokemon_data({"pokedex": pokedex, "streaks": streaks})
+        logging.info("Pokémon data saved during shutdown")
+    except Exception as e:
+        await ctx.send("⚠️ Error saving Pokémon data during shutdown!")
+        logging.error(f"Failed to save Pokémon data during shutdown: {e}")
     # Stop Pokémon spawner
     if pokemon_spawning and pokemon_loop_task:
         pokemon_spawning = False
@@ -1029,8 +1079,17 @@ async def restartbot(ctx):
     if not bot.is_shutdown:
         await ctx.send("❌ Bot is already running.")
         return
-    global pokemon_spawning, pokemon_loop_task
+    global pokemon_spawning, pokemon_loop_task, pokedex, streaks
     bot.is_shutdown = False
+    # Reload Pokémon data
+    try:
+        poke_data = load_pokemon_data()
+        pokedex = poke_data.get("pokedex", {})
+        streaks = poke_data.get("streaks", {})
+        logging.info("Pokémon data reloaded during restart")
+    except Exception as e:
+        await ctx.send("⚠️ Error reloading Pokémon data during restart!")
+        logging.error(f"Failed to reload Pokémon data during restart: {e}")
     # Restart tasks
     if not pokemon_spawning:
         pokemon_spawning = True
@@ -1047,7 +1106,7 @@ async def restartbot(ctx):
         logging.info("Daily joke task restarted via restartbot")
     # Restore roles from toptrainer.json
     guild = ctx.guild or bot.get_guild(GUILD_ID)
-    if guild and toptrainer_data.get("top_trainer_id") or toptrainer_data.get("shiny_trainer_id"):
+    if guild and (toptrainer_data.get("top_trainer_id") or toptrainer_data.get("shiny_trainer_id")):
         await update_roles(guild)
         logging.info("Restored top trainer roles from toptrainer.json")
     await ctx.send(f"✅ Bot restarted by {ctx.author.mention}.")
@@ -1279,7 +1338,6 @@ levels = load_levels()
 def add_xp(user_id: str, amount: int):
     user = levels.get(user_id, {"xp": 0, "level": 0})
     user["xp"] += amount
-    import math
     new_level = int(math.sqrt(user["xp"] / 25))  # Reduced from 50 for faster leveling
     leveled_up = False
     if new_level > user.get("level", 0):

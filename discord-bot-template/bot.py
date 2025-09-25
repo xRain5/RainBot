@@ -4,9 +4,6 @@ import random
 import asyncio
 import requests
 import discord
-import filelock
-import math
-import shutil
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandOnCooldown, MissingPermissions, MissingRole
 import time
@@ -28,12 +25,7 @@ logging.basicConfig(
 VOLUME_PATH = "/app/data"  # Matches your mount path
 os.makedirs(VOLUME_PATH, exist_ok=True)
 
-# One-time copy: Add your local files to the volume (run once, then remove/comment out)
-local_files = {
-    "levels.json": '{"_config": {"message_xp": 5, "catch_xp": 20, "meme_xp": 10, "joke_xp": 10, "duel_win_xp": 30, "battle_win_xp": 25, "announce_levelup": true}, "levels": {}}',  # Your current levels.json content
-    # Add other files like "pokemon_data.json": '{"pokedex": {}, "streaks": {}}',
-}
-
+# One-time initialization: Add default files to volume if not initialized
 initialized_flag = os.path.join(VOLUME_PATH, "initialized.txt")
 if not os.path.exists(initialized_flag):
     local_files = {
@@ -50,9 +42,22 @@ if not os.path.exists(initialized_flag):
     for filename, content in local_files.items():
         file_path = os.path.join(VOLUME_PATH, filename)
         if not os.path.exists(file_path):
-            with open(file_path, "w") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(content)
             logging.info(f"Added initial {filename} to volume at {file_path}")
+    
+    # Copy any existing local files (if present in the container)
+    local_data_dir = "."  # Current directory
+    for filename in local_files.keys():
+        local_path = os.path.join(local_data_dir, filename)
+        if os.path.exists(local_path):
+            volume_path = os.path.join(VOLUME_PATH, filename)
+            shutil.copy(local_path, volume_path)
+            logging.info(f"Copied {filename} from local to volume")
+    
+    # Mark initialization as complete
+    with open(initialized_flag, "w") as f:
+        f.write("Initialized")
 
 # Debug .env loading
 print(f"Current working directory: {os.getcwd()}")
@@ -75,7 +80,7 @@ POKEMON_CHANNEL_ID = int(os.getenv("POKEMON_CHANNEL_ID", 0))   # Pokémon spawns
 GUILD_ID = int(os.getenv("GUILD_ID", 0))                       # Role management
 SHINY_RATE = float(os.getenv("SHINY_RATE", 0.01))              # Default 1%
 TWITCH_INTERVAL = int(os.getenv("TWITCH_INTERVAL", 2))         # Minutes
-YOUTUBE_INTERVAL = int(os.getenv("YOUTUBE_INTERVAL", 30))       # Minutes
+YOUTUBE_INTERVAL = int(os.getenv("YOUTUBE_INTERVAL", 30))      # Minutes
 TWITCH_CHANNEL_ID = int(os.getenv("TWITCH_CHANNEL_ID", NOTIFY_CHANNEL_ID))  # Twitch notifications
 YOUTUBE_CHANNEL_ID = int(os.getenv("YOUTUBE_CHANNEL_ID", NOTIFY_CHANNEL_ID)) # YouTube notifications
 JOKE_CHANNEL_ID = int(os.getenv("JOKE_CHANNEL_ID", 0))         # Daily jokes (replaces MEME_CHANNEL_ID)
@@ -122,54 +127,40 @@ if not DISCORD_TOKEN:
 # =========================
 # DATA FILES
 # =========================
-NOTIFY_FILE = "/app/data/notify_data.json"
-PERMANENT_CHANNELS_FILE = "/app/data/permanent_channels.json"
-POKEMON_FILE = "/app/data/pokemon_data.json"
-MEME_FILE = "/app/data/memes.json"
-JOKE_FILE = "/app/data/jokes.json"
-CONFIG_FILE = "/app/data/config.json"
-BATTLE_STATS_FILE = "/app/data/battle_stats.json"
-TOPTRAINER_FILE = "/app/data/toptrainer.json"
-LEVELS_FILE = "/app/data/levels.json"  # Add this
+NOTIFY_FILE = os.path.join(VOLUME_PATH, "notify_data.json")
+PERMANENT_CHANNELS_FILE = os.path.join(VOLUME_PATH, "permanent_channels.json")
+POKEMON_FILE = os.path.join(VOLUME_PATH, "pokemon_data.json")
+MEME_FILE = os.path.join(VOLUME_PATH, "memes.json")
+JOKE_FILE = os.path.join(VOLUME_PATH, "jokes.json")
+CONFIG_FILE = os.path.join(VOLUME_PATH, "config.json")
+BATTLE_STATS_FILE = os.path.join(VOLUME_PATH, "battle_stats.json")
+TOPTRAINER_FILE = os.path.join(VOLUME_PATH, "toptrainer.json")
+LEVELS_FILE = os.path.join(VOLUME_PATH, "levels.json")
 
-# JSON file handling with file locking
+# JSON file handling without filelock
 def load_json_file(path, default):
-    lock = filelock.FileLock(f"{path}.lock")
     start_time = time.time()
     try:
-        with lock.acquire(timeout=2):  # Reduced from 10 to 2 seconds
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    try:
-                        data = json.load(f)
-                        logging.info(f"Loaded {path} in {time.time() - start_time:.2f} seconds")
-                        return data
-                    except json.JSONDecodeError as e:
-                        logging.error(f"JSON decode error in {path}: {e}. Reverting to default.")
-                        return default
-                    except Exception as e:
-                        logging.error(f"Error loading {path}: {e}")
-                        return default
-            logging.info(f"File {path} not found, using default: {default}")
-            return default
-    except filelock.Timeout:
-        logging.error(f"Timeout acquiring lock for {path}")
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                logging.info(f"Loaded {path} in {time.time() - start_time:.2f} seconds")
+                return data
+        logging.info(f"File {path} not found, using default: {default}")
         return default
-    except filelock.Timeout:
-        logging.error(f"Timeout acquiring lock for {path}")
+    except json.JSONDecodeError as e:
+        logging.error(f"JSON decode error in {path}: {e}. Reverting to default.")
+        return default
+    except Exception as e:
+        logging.error(f"Error loading {path}: {e}")
         return default
 
 def save_json_file(path, data):
-    lock = filelock.FileLock(f"{path}.lock")
     start_time = time.time()
     try:
-        with lock.acquire(timeout=2):  # Reduced from 10 to 2 seconds
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            logging.info(f"Saved {path} in {time.time() - start_time:.2f} seconds")
-    except filelock.Timeout:
-        logging.error(f"Timeout acquiring lock for {path}")
-        raise Exception(f"Could not save {path}: Lock timeout")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        logging.info(f"Saved {path} in {time.time() - start_time:.2f} seconds")
     except Exception as e:
         logging.error(f"Error saving {path}: {e}")
         raise Exception(f"Could not save {path}: {e}")
@@ -179,7 +170,7 @@ def load_pokemon_data():
 
 def save_pokemon_data(poke):
     save_json_file(POKEMON_FILE, poke)
-    
+
 memes = load_json_file(MEME_FILE, [])
 jokes = load_json_file(JOKE_FILE, [])
 config = load_json_file(CONFIG_FILE, {"prefixes": {}})
@@ -279,6 +270,32 @@ jokes = load_json_file(JOKE_FILE, [])
 config = load_json_file(CONFIG_FILE, {"prefixes": {}})
 battle_stats = load_json_file(BATTLE_STATS_FILE, {})
 toptrainer_data = load_json_file(TOPTRAINER_FILE, {"top_trainer_id": None, "shiny_trainer_id": None})
+
+def load_levels():
+    data = load_json_file(LEVELS_FILE, {"_config": {}, "levels": {}})
+    global LEVEL_CONFIG
+    LEVEL_CONFIG = data.get("_config", {
+        "message_xp": 5, "catch_xp": 20, "meme_xp": 10,
+        "joke_xp": 10, "duel_win_xp": 30, "battle_win_xp": 25,
+        "announce_levelup": True
+    })
+    return data.get("levels", {})
+
+def save_levels(levels_data, config=LEVEL_CONFIG):
+    data = {"_config": config, "levels": levels_data}
+    save_json_file(LEVELS_FILE, data)
+    logging.info(f"Levels saved: {len(levels_data)} users")
+
+def add_xp(user_id, xp):
+    levels.setdefault(user_id, {"xp": 0, "level": 0})
+    levels[user_id]["xp"] += xp
+    leveled_up = False
+    while levels[user_id]["xp"] >= 100 * (levels[user_id]["level"] + 1):
+        levels[user_id]["xp"] -= 100 * (levels[user_id]["level"] + 1)
+        levels[user_id]["level"] += 1
+        leveled_up = True
+    save_levels(levels)
+    return levels[user_id], leveled_up
 
 # =========================
 # FULL GEN 1 LIST (151)
@@ -607,7 +624,6 @@ async def setcatchcd(ctx, seconds: int):
         await ctx.send(f"✅ Catch cooldown set to {CATCH_COOLDOWN} seconds.")
         logging.info(f"Catch cooldown set to {CATCH_COOLDOWN} seconds")
 
-# Pokémon spawner and catch logic (unchanged, but ensure save_pokemon_data is called)
 @bot.command(name="catch")
 async def catch(ctx, *, name: str):
     global active_pokemon
@@ -732,7 +748,6 @@ async def battletop(ctx):
 # Pokémon Trading
 pending_trades = {}  # {user_id: (target_id, pokemon_name)}
 
-# Trade command (updated to ensure data saving)
 @bot.command(name="trade")
 async def trade(ctx, member: discord.Member, pokemon_name: str):
     if bot.is_shutdown:

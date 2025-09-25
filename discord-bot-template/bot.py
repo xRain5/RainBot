@@ -6,6 +6,7 @@ import requests
 import discord
 import filelock
 import math
+import shutil
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandOnCooldown, MissingPermissions, MissingRole
 import time
@@ -22,6 +23,36 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+# Create volume directory if needed
+VOLUME_PATH = "/app/data"  # Matches your mount path
+os.makedirs(VOLUME_PATH, exist_ok=True)
+
+# One-time copy: Add your local files to the volume (run once, then remove/comment out)
+local_files = {
+    "levels.json": '{"_config": {"message_xp": 5, "catch_xp": 20, "meme_xp": 10, "joke_xp": 10, "duel_win_xp": 30, "battle_win_xp": 25, "announce_levelup": true}, "levels": {}}',  # Your current levels.json content
+    # Add other files like "pokemon_data.json": '{"pokedex": {}, "streaks": {}}',
+}
+
+initialized_flag = os.path.join(VOLUME_PATH, "initialized.txt")
+if not os.path.exists(initialized_flag):
+    local_files = {
+        "levels.json": '{"_config": {"message_xp": 5, "catch_xp": 20, "meme_xp": 10, "joke_xp": 10, "duel_win_xp": 30, "battle_win_xp": 25, "announce_levelup": true}, "levels": {}}',
+        "notify_data.json": '{"streamers": [], "youtube_channels": {}}',
+        "permanent_channels.json": '{"streamers": [], "youtube_channels": {}}',
+        "pokemon_data.json": '{"pokedex": {}, "streaks": {}}',
+        "memes.json": '[]',
+        "jokes.json": '[]',
+        "config.json": '{"prefixes": {}}',
+        "battle_stats.json": '{}',
+        "toptrainer.json": '{"top_trainer_id": null, "shiny_trainer_id": null}',
+    }
+    for filename, content in local_files.items():
+        file_path = os.path.join(VOLUME_PATH, filename)
+        if not os.path.exists(file_path):
+            with open(file_path, "w") as f:
+                f.write(content)
+            logging.info(f"Added initial {filename} to volume at {file_path}")
 
 # Debug .env loading
 print(f"Current working directory: {os.getcwd()}")
@@ -91,25 +122,27 @@ if not DISCORD_TOKEN:
 # =========================
 # DATA FILES
 # =========================
-NOTIFY_FILE = "notify_data.json"     # Twitch + YouTube lists and last seen video IDs
-PERMANENT_CHANNELS_FILE = "permanent_channels.json"  # Permanent streamers and YouTube channels
-POKEMON_FILE = "pokemon_data.json"   # Catches + streaks
-MEME_FILE = "memes.json"             # Memes list
-JOKE_FILE = "jokes.json"             # Jokes list
-CONFIG_FILE = "config.json"          # Server prefixes
-BATTLE_STATS_FILE = "battle_stats.json"  # Battle wins and losses
-TOPTRAINER_FILE = "toptrainer.json"   # Top trainer and shiny master tracking
+NOTIFY_FILE = "/app/data/notify_data.json"
+PERMANENT_CHANNELS_FILE = "/app/data/permanent_channels.json"
+POKEMON_FILE = "/app/data/pokemon_data.json"
+MEME_FILE = "/app/data/memes.json"
+JOKE_FILE = "/app/data/jokes.json"
+CONFIG_FILE = "/app/data/config.json"
+BATTLE_STATS_FILE = "/app/data/battle_stats.json"
+TOPTRAINER_FILE = "/app/data/toptrainer.json"
+LEVELS_FILE = "/app/data/levels.json"  # Add this
 
 # JSON file handling with file locking
 def load_json_file(path, default):
     lock = filelock.FileLock(f"{path}.lock")
+    start_time = time.time()
     try:
-        with lock.acquire(timeout=10):  # Wait up to 10 seconds for lock
+        with lock.acquire(timeout=2):  # Reduced from 10 to 2 seconds
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     try:
                         data = json.load(f)
-                        logging.info(f"Loaded {path}")
+                        logging.info(f"Loaded {path} in {time.time() - start_time:.2f} seconds")
                         return data
                     except json.JSONDecodeError as e:
                         logging.error(f"JSON decode error in {path}: {e}. Reverting to default.")
@@ -122,14 +155,18 @@ def load_json_file(path, default):
     except filelock.Timeout:
         logging.error(f"Timeout acquiring lock for {path}")
         return default
+    except filelock.Timeout:
+        logging.error(f"Timeout acquiring lock for {path}")
+        return default
 
 def save_json_file(path, data):
     lock = filelock.FileLock(f"{path}.lock")
+    start_time = time.time()
     try:
-        with lock.acquire(timeout=10):
+        with lock.acquire(timeout=2):  # Reduced from 10 to 2 seconds
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            logging.info(f"Saved {path}")
+            logging.info(f"Saved {path} in {time.time() - start_time:.2f} seconds")
     except filelock.Timeout:
         logging.error(f"Timeout acquiring lock for {path}")
         raise Exception(f"Could not save {path}: Lock timeout")
@@ -168,6 +205,30 @@ pending_trades = {}
 pokemon_spawning = False
 pokemon_loop_task = None
 active_pokemon = None
+
+@tasks.loop(minutes=TWITCH_INTERVAL)
+async def twitch_notifier():
+    logging.info("Twitch notifier placeholder")
+    pass
+
+@tasks.loop(minutes=YOUTUBE_INTERVAL)
+async def youtube_notifier():
+    logging.info("YouTube notifier placeholder")
+    pass
+
+async def daily_joke():
+    logging.info("Daily joke placeholder")
+    pass
+
+async def pokemon_spawner():
+    logging.info("Pokémon spawner placeholder")
+    global active_pokemon
+    active_pokemon = None  # Prevent catch command errors
+    pass
+
+async def update_roles(guild):
+    logging.info("Update roles placeholder")
+    pass
 
 # Track bot state
 bot.is_shutdown = False
@@ -209,9 +270,15 @@ notify_data = load_notify_data()
 streamers = notify_data.get("streamers", [])
 youtube_channels = notify_data.get("youtube_channels", {})  # {channel_id: last_video_id}
 
+# Load data from volume
 poke_data = load_pokemon_data()
-pokedex = poke_data.get("pokedex", {})  # user_id -> [{name, rarity, shiny}]
-streaks = poke_data.get("streaks", {})  # user_id -> int
+pokedex = poke_data.get("pokedex", {})
+streaks = poke_data.get("streaks", {})
+memes = load_json_file(MEME_FILE, [])
+jokes = load_json_file(JOKE_FILE, [])
+config = load_json_file(CONFIG_FILE, {"prefixes": {}})
+battle_stats = load_json_file(BATTLE_STATS_FILE, {})
+toptrainer_data = load_json_file(TOPTRAINER_FILE, {"top_trainer_id": None, "shiny_trainer_id": None})
 
 # =========================
 # FULL GEN 1 LIST (151)
@@ -1320,18 +1387,19 @@ LEVEL_CONFIG = {
 }
 
 def load_levels():
-    data = load_json_file(LEVELS_FILE, {})
+    data = load_json_file(LEVELS_FILE, {"_config": {}, "levels": {}})
     global LEVEL_CONFIG
-    if "_config" in data:
-        LEVEL_CONFIG.update(data.pop("_config"))
-    logging.info(f"Levels loaded: {len(data)} users")
-    return data
+    LEVEL_CONFIG = data.get("_config", {
+        "message_xp": 5, "catch_xp": 20, "meme_xp": 10,
+        "joke_xp": 10, "duel_win_xp": 30, "battle_win_xp": 25,
+        "announce_levelup": True
+    })
+    return data.get("levels", {})
 
-def save_levels(levels):
-    data = levels.copy()
-    data["_config"] = LEVEL_CONFIG
+def save_levels(levels_data, config=LEVEL_CONFIG):
+    data = {"_config": config, "levels": levels_data}
     save_json_file(LEVELS_FILE, data)
-    logging.info(f"Levels saved: {len(levels)} users")
+    logging.info(f"Levels saved: {len(levels_data)} users")
 
 levels = load_levels()
 

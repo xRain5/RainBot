@@ -86,7 +86,7 @@ STARTUP_LOG_CHANNEL_ID = int(os.getenv("STARTUP_LOG_CHANNEL_ID", 0))
 
 if not DISCORD_TOKEN:
     logging.error("DISCORD_TOKEN not set in .env")
-    exit(1
+    exit(1)
 
 # =========================
 # DATA FILES

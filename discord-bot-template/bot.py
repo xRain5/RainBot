@@ -4,6 +4,7 @@ import random
 import asyncio
 import requests
 import discord
+import shutil  # Added import for shutil
 from discord.ext import commands, tasks
 from discord.ext.commands import CommandOnCooldown, MissingPermissions, MissingRole
 import time
@@ -58,7 +59,6 @@ if not os.path.exists(initialized_flag):
     # Mark initialization as complete
     with open(initialized_flag, "w") as f:
         f.write("Initialized")
-
 # Debug .env loading
 print(f"Current working directory: {os.getcwd()}")
 print(f"Attempting to load .env from: {os.path.abspath('.env')}")
